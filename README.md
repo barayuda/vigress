@@ -292,7 +292,7 @@ Fields are delimited by `;`, key=value.
 
 > **Note:** `--region` and `--mask` apply to single runs only and are ignored in `--config` batch mode. Put `regions` and `mask` entries directly in the config file instead.
 
-### New outputs (schemaVersion 2)
+### New outputs (schemaVersion 3)
 
 | File | What it is |
 |------|------------|
@@ -300,7 +300,7 @@ Fields are delimited by `;`, key=value.
 | `out/checklist.md` | markdown checklist of aspects with pass/fail/unresolved verdict |
 | `out/report.html` | now includes a per-region table (region · score · verdict+reason · diff thumbnail) and a checklist section |
 
-`summary.json` and the `--json` payload are now `schemaVersion: 2` and include `regions[]` (per-region `name`, `verdict`, `reason`, `mismatchPercent`) and `checklist[]` (per-aspect `aspect`, `region`, `verdict`, `workaround`).
+`summary.json` and the `--json` payload are now `schemaVersion: 3` and include `regions[]` (per-region `name`, `verdict`, `reason`, `mismatchPercent`), `checklist[]` (per-aspect `aspect`, `region`, `verdict`, `workaround`), `mode`, and `shots[]`.
 
 **Masked artifacts:** the saved `<name>.target.png` and `<name>.baseline.png` show the magenta mask boxes — the report reflects exactly what was compared, making mask coverage auditable.
 
