@@ -59,5 +59,21 @@ describe("buildReportHtml regions + checklist", () => {
     expect(html).toContain("fail");
     expect(html).toContain("filter bar width");
     expect(html).toContain('src="contact.filter-bar.diff.png"');
+    expect(html).toContain("fail (content)");
+  });
+  it("does not render redundant 'unresolved (unresolved)' when verdict equals reason", () => {
+    const s: Summary = {
+      schemaVersion: SCHEMA_VERSION, outDir: "/tmp/out", reportHtml: "report.html", summaryJson: "summary.json",
+      runs: [{
+        name: "home", baselineType: "url", viewport: { width: 1440, height: 900 },
+        mismatchPixels: 0, mismatchPercent: 0,
+        target: "home.target.png", baseline: "home.baseline.png", diff: "home.diff.png",
+        regions: [{ name: "header", mismatchPixels: 0, mismatchPercent: 0, verdict: "unresolved", reason: "unresolved" }],
+        checklist: [],
+      }],
+    };
+    const html = buildReportHtml(s);
+    expect(html).toContain("unresolved");
+    expect(html).not.toContain("unresolved (unresolved)");
   });
 });

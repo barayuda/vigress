@@ -11,7 +11,7 @@ function regionRows(regions: RegionScore[]): string {
       <tr class="v-${r.verdict}">
         <td>${esc(r.name)}</td>
         <td>${r.mismatchPercent}%</td>
-        <td>${esc(r.verdict)} (${esc(r.reason)})</td>
+        <td>${esc(r.verdict)}${r.reason !== r.verdict ? ` (${esc(r.reason)})` : ""}</td>
         <td>${r.diff ? `<img class="thumb" src="${esc(r.diff)}" alt="${esc(r.name)} diff">` : "—"}</td>
       </tr>`).join("");
   return `

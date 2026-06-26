@@ -74,6 +74,9 @@ async function main(): Promise<number> {
 
   const regionFlags = Array.isArray(values.region) ? (values.region as string[]) : [];
   const maskFlags = Array.isArray(values.mask) ? (values.mask as string[]) : [];
+  if (values.config && (regionFlags.length || maskFlags.length)) {
+    process.stderr.write("vigress: --region/--mask are ignored with --config; put regions/mask in the config file instead\n");
+  }
   if (runs.length === 1 && !values.config) {
     if (regionFlags.length) runs[0].regions = regionFlags.map((s) => parseRegionFlag(s));
     if (maskFlags.length) runs[0].mask = maskFlags.map((s) => parseMaskFlag(s));

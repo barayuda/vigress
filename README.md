@@ -284,6 +284,8 @@ Per-region scoring lets you isolate specific UI areas, giving each a separate mi
 
 Fields are delimited by `;`, key=value.
 
+> **Note:** `--region` and `--mask` apply to single runs only and are ignored in `--config` batch mode. Put `regions` and `mask` entries directly in the config file instead.
+
 ### New outputs (schemaVersion 2)
 
 | File | What it is |
