@@ -2,7 +2,8 @@ import { parseArgs } from "node:util";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { BrowserContext } from "playwright";
-import { buildRunConfig, selectorForSide, parseRegionFlag, parseMaskFlag, runStamp, type RunSpec, type ChecklistItem } from "./config";
+import { buildRunConfig, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem } from "./config";
+import { runSteps, autoExplore } from "./steps";
 import { resolveBoxes, type BoxItem } from "./regions";
 import { diffWithRegions, type RegionInput } from "./diff";
 import { launchBrowser } from "./browser";
@@ -11,7 +12,7 @@ import { resolveBaseline } from "./sources";
 import { storageStateOption, runLogin } from "./auth";
 import { writeReport } from "./report";
 import { buildJsonPayload } from "./json";
-import { SCHEMA_VERSION, type RunResult, type RegionScore, type Summary } from "./types";
+import { SCHEMA_VERSION, type RunResult, type RegionScore, type RunMode, type Shot, type Summary } from "./types";
 
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
@@ -36,6 +37,8 @@ const { values, positionals } = parseArgs({
     url: { type: "string" },
     region: { type: "string", multiple: true },
     mask: { type: "string", multiple: true },
+    "no-steps": { type: "boolean" },
+    step: { type: "string", multiple: true },
   },
 });
 
@@ -82,6 +85,15 @@ async function main(): Promise<number> {
   if (runs.length === 1 && !values.config) {
     if (regionFlags.length) runs[0].regions = regionFlags.map((s) => parseRegionFlag(s));
     if (maskFlags.length) runs[0].mask = maskFlags.map((s) => parseMaskFlag(s));
+  }
+
+  const stepFlags = Array.isArray(values.step) ? (values.step as string[]) : [];
+  if (values.config && stepFlags.length) {
+    process.stderr.write("vigress: --step is ignored with --config; put steps in the config file instead\n");
+  }
+  if (runs.length === 1 && !values.config && stepFlags.length) {
+    runs[0].steps = stepFlags.map(parseStepFlag);
+    runs[0].steps.forEach(validateStep);
   }
 
   // Each run lands in its own timestamped subdir so prior outputs persist;
@@ -149,6 +161,12 @@ async function main(): Promise<number> {
         threshold: opts.threshold,
       });
 
+      // Interaction (target only), after the clean screenshot + diff so parity is unaffected.
+      const mode: RunMode = values["no-steps"] === true ? "static" : (spec.steps?.length ? "steps" : "explore");
+      let shots: Shot[] = [];
+      if (mode === "steps") shots = await runSteps(page, spec.steps!, outDir, spec.name);
+      else if (mode === "explore") await autoExplore(page);
+
       const videoHandle = spec.video ? page.video() : undefined;
       await page.close();
       await ctx.close();
@@ -169,10 +187,10 @@ async function main(): Promise<number> {
         video: videoRel,
         regions,
         checklist,
-        mode: "static",
-        shots: [],
+        mode,
+        shots,
       });
-      log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${full.mismatchPercent}% -> ${diffRel} (${regions.length} region(s))`);
+      log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${full.mismatchPercent}% · ${mode} · ${regions.length} region(s) -> ${diffRel}`);
     }
   } finally {
     await browser.close();

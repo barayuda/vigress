@@ -30,6 +30,8 @@ export function buildJsonPayload(summary: Summary): object {
         diff: rg.diff ? abs(rg.diff) : undefined,
       })),
       checklist: r.checklist,
+      mode: r.mode,
+      shots: r.shots.map((s) => ({ name: s.name, path: abs(s.path) })),
     })),
   };
 }
