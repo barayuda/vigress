@@ -1,6 +1,6 @@
 import type { BaselineType, Viewport, ChecklistItem } from "./config";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export interface BoxDims {
   width: number;
@@ -21,6 +21,13 @@ export interface RegionScore {
   diff?: string; // path relative to outDir; undefined when unresolved
 }
 
+export type RunMode = "static" | "explore" | "steps";
+
+export interface Shot {
+  name: string;
+  path: string; // relative to outDir
+}
+
 export interface RunResult {
   name: string;
   baselineType: BaselineType;
@@ -33,6 +40,8 @@ export interface RunResult {
   video?: string; // path relative to outDir
   regions: RegionScore[]; // [] when none
   checklist: ChecklistItem[]; // [] when none
+  mode: RunMode; // "static" | "explore" | "steps"
+  shots: Shot[]; // [] unless screenshot steps ran
 }
 
 export interface Summary {

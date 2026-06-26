@@ -142,3 +142,49 @@ describe("runStamp", () => {
     expect(runStamp()).toMatch(/^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d$/);
   });
 });
+
+import { parseStepFlag, validateStep } from "./config";
+
+describe("parseStepFlag", () => {
+  it("parses a click step", () => {
+    expect(parseStepFlag("action=click;selector=[data-testid=period-input]")).toEqual({ action: "click", selector: "[data-testid=period-input]" });
+  });
+  it("parses a fill step with value and a waitFor with ms", () => {
+    expect(parseStepFlag("action=fill;selector=#q;value=hello")).toEqual({ action: "fill", selector: "#q", value: "hello" });
+    expect(parseStepFlag("action=waitFor;ms=500")).toEqual({ action: "waitFor", ms: 500 });
+  });
+  it("parses a screenshot step", () => {
+    expect(parseStepFlag("action=screenshot;name=date-open")).toEqual({ action: "screenshot", name: "date-open" });
+  });
+});
+
+describe("validateStep", () => {
+  it("accepts valid steps", () => {
+    expect(() => validateStep({ action: "click", selector: "#x" })).not.toThrow();
+    expect(() => validateStep({ action: "fill", selector: "#x", value: "y" })).not.toThrow();
+    expect(() => validateStep({ action: "waitFor", ms: 300 })).not.toThrow();
+    expect(() => validateStep({ action: "screenshot", name: "s" })).not.toThrow();
+  });
+  it("rejects unknown action", () => {
+    expect(() => validateStep({ action: "boom" } as any)).toThrow(/unknown step action/);
+  });
+  it("rejects a step missing its required field", () => {
+    expect(() => validateStep({ action: "click" })).toThrow(/click.*selector/);
+    expect(() => validateStep({ action: "fill", selector: "#x" })).toThrow(/fill.*value/);
+    expect(() => validateStep({ action: "screenshot" })).toThrow(/screenshot.*name/);
+    expect(() => validateStep({ action: "waitFor" })).toThrow(/waitFor.*selector.*ms/);
+  });
+});
+
+describe("buildRunConfig batch steps", () => {
+  it("passes steps through and validates them", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vstep-"));
+    const ok = join(dir, "ok.json");
+    writeFileSync(ok, JSON.stringify([{ target: "http://x/a", against: "http://x/b", steps: [{ action: "click", selector: "#c" }] }]));
+    expect(buildRunConfig({ config: ok }, {} as NodeJS.ProcessEnv).runs[0].steps?.[0].selector).toBe("#c");
+
+    const bad = join(dir, "bad.json");
+    writeFileSync(bad, JSON.stringify([{ target: "http://x/a", against: "http://x/b", steps: [{ action: "click" }] }]));
+    expect(() => buildRunConfig({ config: bad }, {} as NodeJS.ProcessEnv)).toThrow(/click.*selector/);
+  });
+});

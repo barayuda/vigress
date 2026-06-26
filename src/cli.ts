@@ -169,6 +169,8 @@ async function main(): Promise<number> {
         video: videoRel,
         regions,
         checklist,
+        mode: "static",
+        shots: [],
       });
       log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${full.mismatchPercent}% -> ${diffRel} (${regions.length} region(s))`);
     }

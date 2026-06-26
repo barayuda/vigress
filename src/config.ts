@@ -39,6 +39,19 @@ export interface MaskSpec {
   clip?: Box;
 }
 
+export type StepAction =
+  | "click" | "fill" | "select" | "hover" | "press" | "waitFor" | "scroll" | "screenshot";
+
+export interface Step {
+  action: StepAction;
+  selector?: string;
+  value?: string;
+  key?: string;
+  name?: string; // screenshot name
+  ms?: number; // waitFor delay
+  by?: number; // scroll px
+}
+
 export interface RunSpec {
   name: string;
   target: string;
@@ -50,6 +63,7 @@ export interface RunSpec {
   regions?: RegionSpec[];
   mask?: MaskSpec[];
   checklist?: ChecklistItem[];
+  steps?: Step[];
 }
 
 export interface GlobalOpts {
@@ -124,6 +138,52 @@ export function parseMaskFlag(s: string): MaskSpec {
   return { target: kv.target, baseline: kv.baseline, selector: kv.selector, clip: parseClip(kv.clip) };
 }
 
+export function parseStepFlag(s: string): Step {
+  const kv = parseKv(s);
+  const step: Step = { action: kv.action as StepAction };
+  if (kv.selector !== undefined) step.selector = kv.selector;
+  if (kv.value !== undefined) step.value = kv.value;
+  if (kv.key !== undefined) step.key = kv.key;
+  if (kv.name !== undefined) step.name = kv.name;
+  if (kv.ms !== undefined) step.ms = Number(kv.ms);
+  if (kv.by !== undefined) step.by = Number(kv.by);
+  return step;
+}
+
+const STEP_ACTIONS = ["click", "fill", "select", "hover", "press", "waitFor", "scroll", "screenshot"];
+
+export function validateStep(step: Step): void {
+  if (!STEP_ACTIONS.includes(step.action)) {
+    throw new Error(`vigress config: unknown step action '${step.action}'`);
+  }
+  const need = (cond: boolean, field: string): void => {
+    if (!cond) throw new Error(`vigress config: step '${step.action}' needs ${field}`);
+  };
+  switch (step.action) {
+    case "click":
+    case "hover":
+      need(!!step.selector, "selector");
+      break;
+    case "fill":
+    case "select":
+      need(!!step.selector, "selector");
+      need(step.value !== undefined, "value");
+      break;
+    case "press":
+      need(!!step.key, "key");
+      break;
+    case "waitFor":
+      need(!!step.selector || step.ms !== undefined, "selector or ms");
+      break;
+    case "scroll":
+      need(!!step.selector || step.by !== undefined, "selector or by");
+      break;
+    case "screenshot":
+      need(!!step.name, "name");
+      break;
+  }
+}
+
 // A filesystem-safe, sortable run stamp: YYYY-MM-DD_HH-MM-SS (local time).
 // Each run writes into <out>/<stamp>/ so previous outputs are never overwritten.
 export function runStamp(d: Date = new Date()): string {
@@ -167,11 +227,13 @@ export function buildRunConfig(
       regions: r.regions,
       mask: r.mask,
       checklist: r.checklist,
+      steps: r.steps,
     }));
     for (const r of runs) {
       for (const rg of r.regions ?? []) {
         if (!rg.name) throw new Error("vigress config: every region needs a non-empty 'name'");
       }
+      for (const st of r.steps ?? []) validateStep(st);
     }
     return { runs, opts };
   }
