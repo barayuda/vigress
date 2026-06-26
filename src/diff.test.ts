@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PNG } from "pngjs";
-import { diffPngs } from "./diff";
+import { diffPngs, diffWithRegions } from "./diff";
 
 let dir: string;
 
@@ -53,5 +53,62 @@ describe("diffPngs", () => {
     expect(res.width).toBe(8);
     expect(res.height).toBe(10);
     expect(res.totalPixels).toBe(80);
+  });
+});
+
+describe("diffWithRegions", () => {
+  it("masks both sides so a differing masked area does not count in the full diff", () => {
+    // target all-white, baseline white except a black 4x4 patch at (0,0); mask covers the patch.
+    const t = writePng("mt.png", solid(10, 10, 255, 255, 255));
+    const bPng = solid(10, 10, 255, 255, 255);
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+      const i = (10 * y + x) << 2; bPng.data[i] = 0; bPng.data[i + 1] = 0; bPng.data[i + 2] = 0;
+    }
+    const b = writePng("mb.png", bPng);
+    const box = { x: 0, y: 0, width: 4, height: 4 };
+    const res = diffWithRegions({
+      targetPath: t, baselinePath: b, diffPath: join(dir, "mfull.png"),
+      outDir: dir, name: "m", targetMaskBoxes: [box], baselineMaskBoxes: [box], regions: [],
+    });
+    expect(res.full.mismatchPixels).toBe(0); // patch was masked on both sides
+  });
+
+  it("scores a per-region content diff and writes its diff file", () => {
+    const t = writePng("rt.png", solid(20, 10, 255, 255, 255));
+    const b = writePng("rb.png", solid(20, 10, 0, 0, 0)); // fully different
+    const region = { name: "left", targetBox: { x: 0, y: 0, width: 10, height: 10 }, baselineBox: { x: 0, y: 0, width: 10, height: 10 }, maxMismatch: 5 };
+    const res = diffWithRegions({
+      targetPath: t, baselinePath: b, diffPath: join(dir, "rfull.png"),
+      outDir: dir, name: "r", targetMaskBoxes: [], baselineMaskBoxes: [], regions: [region],
+    });
+    expect(res.regions[0].name).toBe("left");
+    expect(res.regions[0].mismatchPercent).toBe(100);
+    expect(res.regions[0].verdict).toBe("fail");
+    expect(res.regions[0].reason).toBe("content");
+    expect(res.regions[0].diff).toBe("r.left.diff.png");
+  });
+
+  it("marks a region unresolved when a side box is null", () => {
+    const t = writePng("ut.png", solid(10, 10, 255, 255, 255));
+    const b = writePng("ub.png", solid(10, 10, 255, 255, 255));
+    const res = diffWithRegions({
+      targetPath: t, baselinePath: b, diffPath: join(dir, "ufull.png"),
+      outDir: dir, name: "u", targetMaskBoxes: [], baselineMaskBoxes: [],
+      regions: [{ name: "missing", targetBox: { x: 0, y: 0, width: 4, height: 4 }, baselineBox: null }],
+    });
+    expect(res.regions[0].verdict).toBe("unresolved");
+    expect(res.regions[0].diff).toBeUndefined();
+  });
+
+  it("fails a region on geometry when box sizes differ beyond 2px", () => {
+    const t = writePng("gt.png", solid(20, 20, 255, 255, 255));
+    const b = writePng("gb.png", solid(20, 20, 255, 255, 255));
+    const res = diffWithRegions({
+      targetPath: t, baselinePath: b, diffPath: join(dir, "gfull.png"),
+      outDir: dir, name: "g", targetMaskBoxes: [], baselineMaskBoxes: [],
+      regions: [{ name: "geo", targetBox: { x: 0, y: 0, width: 16, height: 10 }, baselineBox: { x: 0, y: 0, width: 10, height: 10 } }],
+    });
+    expect(res.regions[0].verdict).toBe("fail");
+    expect(res.regions[0].reason).toBe("geometry");
   });
 });
