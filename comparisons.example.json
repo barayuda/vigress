@@ -1,0 +1,20 @@
+[
+  {
+    "name": "contact",
+    "target": "https://localhost:3000/reports/contact-v2",
+    "against": "https://staging.example.com/reports/contact"
+  },
+  {
+    "name": "pricing-vs-design",
+    "target": "https://localhost:3000/pricing",
+    "against": "./design/pricing@2x.png",
+    "clip": { "x": 0, "y": 64, "width": 1440, "height": 1200 }
+  },
+  {
+    "name": "home-vs-figma",
+    "target": "https://localhost:3000/",
+    "against": "figma:AbC123FileKey/12:345",
+    "viewport": { "width": 1280, "height": 800 },
+    "video": false
+  }
+]

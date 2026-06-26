@@ -1,0 +1,10 @@
+node_modules/
+out/
+.DS_Store
+**/.DS_Store
+.env
+*.state.json
+*.log
+.sdd-progress.md
+smoke.regions.json
+contact.regions.json

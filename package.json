@@ -1,0 +1,23 @@
+{
+  "name": "vigress",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "General-purpose visual-regression CLI (URL/image/Figma baselines, pixel diff + video)",
+  "bin": { "vigress": "./src/cli.ts" },
+  "scripts": {
+    "test": "bun test",
+    "vigress": "bun run src/cli.ts"
+  },
+  "dependencies": {
+    "pixelmatch": "^5.3.0",
+    "playwright": "^1.48.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "@types/pixelmatch": "^5.2.6",
+    "@types/pngjs": "^6.0.5",
+    "typescript": "^5.5.0"
+  }
+}
