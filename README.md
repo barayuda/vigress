@@ -25,6 +25,7 @@ to any application repo.
 - [CLI reference](#cli-reference)
 - [Baselines](#baselines)
 - [Batch mode (`--config`)](#batch-mode---config)
+- [Regions & masks](#regions--masks)
 - [Outputs](#outputs)
 - [Using it from an AI agent](#using-it-from-an-ai-agent)
 - [Interpreting the mismatch %](#interpreting-the-mismatch-)
@@ -219,6 +220,81 @@ Per-entry fields: `target` and `against` are required; `name`, `clip`,
 > `--threshold`, `--json`, `--quiet`, `--max-mismatch`) come from the CLI flags
 > and apply to the whole batch; `--viewport` is the per-entry default when an
 > entry omits its own.
+
+---
+
+## Regions & masks
+
+Per-region scoring lets you isolate specific UI areas, giving each a separate mismatch score and diff artifact. Masks suppress dynamic content (timestamps, live counts, date badges) before diffing so it doesn't inflate the overall mismatch.
+
+### Extended config entry
+
+```json
+{
+  "name": "contact",
+  "target": "https://localhost:3000/reports/contact-v2",
+  "against": "https://staging.example.com/reports/contact",
+  "regions": [
+    {
+      "name": "filter-bar",
+      "target": "[data-testid=report-filter]",
+      "baseline": ".report__filter",
+      "maxMismatch": 2
+    },
+    {
+      "name": "summary-cards",
+      "selector": "[data-testid=summary-card]",
+      "maxMismatch": 5
+    },
+    {
+      "name": "chart-legend",
+      "clip": { "x": 277, "y": 175, "width": 280, "height": 205 }
+    }
+  ],
+  "mask": [
+    { "selector": "[data-testid=date-filter]" },
+    { "target": "[data-testid=live-count]", "baseline": ".count--live" }
+  ],
+  "checklist": [
+    { "aspect": "filter-bar width/stretch", "region": "filter-bar", "verdict": "pending" },
+    { "aspect": "summary-card radius/border/proportions", "region": "summary-cards", "verdict": "pending" },
+    { "aspect": "chart legend/tick density", "region": "chart-legend", "verdict": "pending" }
+  ]
+}
+```
+
+**`regions[]` fields:** `name` (artifact key), `target` (CSS selector on the new app), `baseline` (CSS selector on the reference), `selector` (applies to both sides), `clip` (`{x,y,width,height}` raw fallback), `maxMismatch` (% threshold, default 5). Precedence per side: `target`/`baseline` → `selector` → `clip`.
+
+**`mask[]` fields:** same `target`, `baseline`, `selector`, `clip` shape. Matched regions are painted opaque magenta on both sides before diffing.
+
+**`checklist[]` fields:** `aspect` (free-form label), `region` (ties to a `regions[].name`), `verdict` (filled in by the tool from the region score), `workaround` (optional note).
+
+### CLI flags for single runs (repeatable)
+
+```bash
+# Add a named region
+--region "name=filter-bar;target=[data-testid=report-filter];baseline=.report__filter;max=2"
+
+# Mask a dynamic element
+--mask "selector=[data-testid=date-filter]"
+
+# Clip value keeps its commas
+--region "name=chart-legend;clip=277,175,280,205"
+```
+
+Fields are delimited by `;`, key=value.
+
+### New outputs (schemaVersion 2)
+
+| File | What it is |
+|------|------------|
+| `out/<name>.<region>.diff.png` | per-region pixel-diff heatmap |
+| `out/checklist.md` | markdown checklist of aspects with pass/fail verdict |
+| `out/report.html` | now includes a per-region table (region · score · verdict+reason · diff thumbnail) and a checklist section |
+
+`summary.json` and the `--json` payload are now `schemaVersion: 2` and include `regions[]` (per-region `name`, `verdict`, `reason`, `mismatchPercent`) and `checklist[]` (per-aspect `aspect`, `region`, `verdict`, `workaround`).
+
+**Masked artifacts:** the saved `<name>.target.png` and `<name>.baseline.png` show the magenta mask boxes — the report reflects exactly what was compared, making mask coverage auditable.
 
 ---
 
