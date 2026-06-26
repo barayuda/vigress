@@ -30,7 +30,6 @@ export interface RegionSpec {
   selector?: string; // both sides
   clip?: Box; // fallback
   maxMismatch?: number;
-  [k: string]: unknown;
 }
 
 export interface MaskSpec {
@@ -38,7 +37,6 @@ export interface MaskSpec {
   baseline?: string;
   selector?: string;
   clip?: Box;
-  [k: string]: unknown;
 }
 
 export interface RunSpec {
@@ -92,10 +90,10 @@ function nameFromTarget(target: string): string {
 }
 
 export function selectorForSide(
-  spec: { target?: string; baseline?: string; selector?: string; [k: string]: unknown },
+  spec: { target?: string; baseline?: string; selector?: string; clip?: Box },
   side: "target" | "baseline",
 ): string | undefined {
-  return (spec[side] as string | undefined) ?? spec.selector;
+  return spec[side] ?? spec.selector;
 }
 
 // Field-delimited by ';', key/value by the first '='. clip keeps its commas.
