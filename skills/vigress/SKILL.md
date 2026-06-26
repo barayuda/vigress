@@ -20,8 +20,11 @@ bun run src/cli.ts --target <url> --against <url|img.png|figma:KEY/NODE> \
   --state auth.state.json --out out --json
 ```
 
-Outputs in `out/`: `<name>.{target,baseline,diff}.png`, `video/*.webm`,
-`summary.json`, `report.html` (open it to review).
+Each run writes to a timestamped subfolder `out/<YYYY-MM-DD_HH-MM-SS>/`, so
+previous runs are never overwritten (the `--json` payload + log line print the
+exact path). Inside: `<name>.{target,baseline,diff}.png`, `video/*.webm`,
+`summary.json`, `report.html` (open it to review). Pass `--no-timestamp` to
+write straight into `out/` (fixed path, overwrites).
 
 **All artifacts (including video) record by default** — single-run and batch.
 Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.

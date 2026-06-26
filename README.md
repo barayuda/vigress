@@ -155,7 +155,8 @@ bun run src/cli.ts --config <file.json> [options]
 | `--against` | string | — | Baseline: a URL, an image path/URL, or `figma:KEY/NODE` (required unless `--config`). |
 | `--against-type` | `url`\|`image`\|`figma` | auto | Force the baseline type, overriding auto-detection (single-run only). |
 | `--name` | string | last path segment of target | Basename for this comparison's artifacts. |
-| `--out` | string | `out` | Output directory (resolved to an absolute path). |
+| `--out` | string | `out` | Parent output directory. Each run writes to `<out>/<YYYY-MM-DD_HH-MM-SS>/`, so previous runs are never overwritten. |
+| `--no-timestamp` | boolean | — | Write straight into `--out` (fixed path) instead of a timestamped subfolder — overwrites the previous run. |
 | `--viewport` | `WxH` | `1440x900` | Browser viewport for captures. |
 | `--state` | path | — | Playwright storageState JSON (from `login`). |
 | `--video` | boolean | on | Record a `.webm` of the capture session. Video is **on by default** (all artifacts), so this flag is redundant; kept for explicitness. |

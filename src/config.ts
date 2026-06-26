@@ -124,6 +124,13 @@ export function parseMaskFlag(s: string): MaskSpec {
   return { target: kv.target, baseline: kv.baseline, selector: kv.selector, clip: parseClip(kv.clip) };
 }
 
+// A filesystem-safe, sortable run stamp: YYYY-MM-DD_HH-MM-SS (local time).
+// Each run writes into <out>/<stamp>/ so previous outputs are never overwritten.
+export function runStamp(d: Date = new Date()): string {
+  const p = (n: number): string => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+
 export function buildRunConfig(
   values: Record<string, unknown>,
   env: NodeJS.ProcessEnv,

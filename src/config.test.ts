@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { parseViewport, detectBaselineType, parseClip, buildRunConfig } from "./config";
-import { selectorForSide, parseRegionFlag, parseMaskFlag } from "./config";
+import { selectorForSide, parseRegionFlag, parseMaskFlag, runStamp } from "./config";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -130,5 +130,15 @@ describe("video defaults on (all artifacts)", () => {
     const off = buildRunConfig({ config: cfg, "no-video": true }, {} as NodeJS.ProcessEnv).runs;
     expect(off[0].video).toBe(false); // --no-video flips default off
     expect(off[1].video).toBe(false); // explicit false still false
+  });
+});
+
+describe("runStamp", () => {
+  it("formats YYYY-MM-DD_HH-MM-SS in local time, zero-padded", () => {
+    // local-time components in → same components out, TZ-independent
+    expect(runStamp(new Date(2026, 5, 26, 9, 5, 3))).toBe("2026-06-26_09-05-03");
+  });
+  it("matches the run-folder shape for the current time", () => {
+    expect(runStamp()).toMatch(/^\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d$/);
   });
 });

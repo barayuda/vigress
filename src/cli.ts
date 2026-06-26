@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { BrowserContext } from "playwright";
-import { buildRunConfig, selectorForSide, parseRegionFlag, parseMaskFlag, type RunSpec, type ChecklistItem } from "./config";
+import { buildRunConfig, selectorForSide, parseRegionFlag, parseMaskFlag, runStamp, type RunSpec, type ChecklistItem } from "./config";
 import { resolveBoxes, type BoxItem } from "./regions";
 import { diffWithRegions, type RegionInput } from "./diff";
 import { launchBrowser } from "./browser";
@@ -22,6 +22,7 @@ const { values, positionals } = parseArgs({
     "against-type": { type: "string" },
     name: { type: "string" },
     out: { type: "string" },
+    "no-timestamp": { type: "boolean" },
     viewport: { type: "string" },
     state: { type: "string" },
     video: { type: "boolean" },
@@ -83,7 +84,10 @@ async function main(): Promise<number> {
     if (maskFlags.length) runs[0].mask = maskFlags.map((s) => parseMaskFlag(s));
   }
 
-  const outDir = resolve(opts.outDir);
+  // Each run lands in its own timestamped subdir so prior outputs persist;
+  // --no-timestamp writes straight into --out (fixed path, overwrites).
+  const baseOut = resolve(opts.outDir);
+  const outDir = values["no-timestamp"] === true ? baseOut : join(baseOut, runStamp());
   const videoDir = join(outDir, "video");
   mkdirSync(outDir, { recursive: true });
   mkdirSync(videoDir, { recursive: true });
