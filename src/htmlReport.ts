@@ -1,4 +1,4 @@
-import type { RunResult, RegionScore, Summary } from "./types";
+import type { RunResult, RegionScore, Shot, Summary } from "./types";
 import type { ChecklistItem } from "./config";
 
 function esc(s: string): string {
@@ -27,6 +27,12 @@ function checklistList(items: ChecklistItem[]): string {
   return `<ul class="checklist">${lis}</ul>`;
 }
 
+function shotStrip(shots: Shot[]): string {
+  if (!shots.length) return "";
+  const figs = shots.map((s) => `<figure><figcaption>${esc(s.name)}</figcaption><img src="${esc(s.path)}" alt="${esc(s.name)}"></figure>`).join("");
+  return `<div class="shots"><div class="shots-label">flow shots</div><div class="imgs">${figs}</div></div>`;
+}
+
 function card(r: RunResult): string {
   const video = r.video
     ? `<div class="vid"><video src="${esc(r.video)}" controls muted></video></div>`
@@ -34,7 +40,7 @@ function card(r: RunResult): string {
   return `
   <section class="card">
     <h2>${esc(r.name)} <span class="pct">${r.mismatchPercent}%</span>
-      <span class="meta">${esc(r.baselineType)} · ${r.viewport.width}×${r.viewport.height} · ${r.mismatchPixels}px</span>
+      <span class="meta">${esc(r.baselineType)} · ${r.viewport.width}×${r.viewport.height} · ${r.mismatchPixels}px · ${esc(r.mode)}</span>
     </h2>
     <div class="imgs">
       <figure><figcaption>target</figcaption><img src="${esc(r.target)}" alt="target"></figure>
@@ -43,6 +49,7 @@ function card(r: RunResult): string {
     </div>
     ${regionRows(r.regions)}
     ${checklistList(r.checklist)}
+    ${shotStrip(r.shots)}
     ${video}
   </section>`;
 }
@@ -77,6 +84,8 @@ export function buildReportHtml(summary: Summary): string {
   tr.v-pass td,li.v-pass{color:#067647}
   tr.v-unresolved td,li.v-unresolved{color:#a16207}
   ul.checklist{margin:12px 0 0;padding-left:18px}
+  .shots{margin-top:12px}
+  .shots-label{color:#656f80;font-size:12px;margin-bottom:4px}
 </style>
 </head>
 <body>

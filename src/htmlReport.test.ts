@@ -19,6 +19,7 @@ const summary: Summary = {
       diff: "contact.diff.png",
       video: "video/contact.webm",
       regions: [], checklist: [],
+      mode: "static", shots: [],
     },
   ],
 };
@@ -52,6 +53,7 @@ describe("buildReportHtml regions + checklist", () => {
         target: "contact.target.png", baseline: "contact.baseline.png", diff: "contact.diff.png",
         regions: [{ name: "filter-bar", mismatchPixels: 5, mismatchPercent: 3.2, verdict: "fail", reason: "content", diff: "contact.filter-bar.diff.png" }],
         checklist: [{ aspect: "filter bar width", region: "filter-bar", verdict: "fail" }],
+        mode: "static", shots: [],
       }],
     };
     const html = buildReportHtml(s);
@@ -70,10 +72,30 @@ describe("buildReportHtml regions + checklist", () => {
         target: "home.target.png", baseline: "home.baseline.png", diff: "home.diff.png",
         regions: [{ name: "header", mismatchPixels: 0, mismatchPercent: 0, verdict: "unresolved", reason: "unresolved" }],
         checklist: [],
+        mode: "static", shots: [],
       }],
     };
     const html = buildReportHtml(s);
     expect(html).toContain("unresolved");
     expect(html).not.toContain("unresolved (unresolved)");
+  });
+});
+
+describe("buildReportHtml mode + shots", () => {
+  it("shows the mode and renders a flow-shots strip", () => {
+    const s: Summary = {
+      schemaVersion: SCHEMA_VERSION, outDir: "/tmp/out", reportHtml: "report.html", summaryJson: "summary.json",
+      runs: [{
+        name: "c", baselineType: "url", viewport: { width: 1440, height: 900 },
+        mismatchPixels: 0, mismatchPercent: 0,
+        target: "c.target.png", baseline: "c.baseline.png", diff: "c.diff.png",
+        regions: [], checklist: [],
+        mode: "steps", shots: [{ name: "date-open", path: "c.date-open.png" }],
+      }],
+    };
+    const html = buildReportHtml(s);
+    expect(html).toContain("steps");
+    expect(html).toContain("date-open");
+    expect(html).toContain('src="c.date-open.png"');
   });
 });
