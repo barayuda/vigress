@@ -17,11 +17,14 @@ cd <workspace>/vigress
 bun install                              # first time
 bun run src/cli.ts login --url <app-url> --state auth.state.json   # if login needed
 bun run src/cli.ts --target <url> --against <url|img.png|figma:KEY/NODE> \
-  --state auth.state.json --video --out out --json
+  --state auth.state.json --out out --json
 ```
 
 Outputs in `out/`: `<name>.{target,baseline,diff}.png`, `video/*.webm`,
 `summary.json`, `report.html` (open it to review).
+
+**All artifacts (including video) record by default** — single-run and batch.
+Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
 
 ## Baselines (auto-detected from `--against`)
 - `https://…` → capture that URL  ·  `./file.png` → use that image  ·

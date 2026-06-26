@@ -107,3 +107,28 @@ describe("buildRunConfig batch regions/mask/checklist", () => {
     expect(() => buildRunConfig({ config: cfg }, {} as NodeJS.ProcessEnv)).toThrow(/region needs a non-empty 'name'/);
   });
 });
+
+describe("video defaults on (all artifacts)", () => {
+  it("single run records video by default", () => {
+    const { runs } = buildRunConfig({ target: "http://x/a", against: "http://x/b" }, {} as NodeJS.ProcessEnv);
+    expect(runs[0].video).toBe(true);
+  });
+  it("single run --no-video disables video", () => {
+    const { runs } = buildRunConfig({ target: "http://x/a", against: "http://x/b", "no-video": true }, {} as NodeJS.ProcessEnv);
+    expect(runs[0].video).toBe(false);
+  });
+  it("batch defaults video on, honors explicit false, and --no-video flips the default off", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vvid-"));
+    const cfg = join(dir, "v.json");
+    writeFileSync(cfg, JSON.stringify([
+      { name: "a", target: "http://x/a", against: "http://x/b" },
+      { name: "c", target: "http://x/c", against: "http://x/d", video: false },
+    ]));
+    const on = buildRunConfig({ config: cfg }, {} as NodeJS.ProcessEnv).runs;
+    expect(on[0].video).toBe(true); // default on
+    expect(on[1].video).toBe(false); // explicit false honored
+    const off = buildRunConfig({ config: cfg, "no-video": true }, {} as NodeJS.ProcessEnv).runs;
+    expect(off[0].video).toBe(false); // --no-video flips default off
+    expect(off[1].video).toBe(false); // explicit false still false
+  });
+});

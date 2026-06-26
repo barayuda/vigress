@@ -140,6 +140,8 @@ export function buildRunConfig(
   };
 
   const viewport = parseViewport(str("viewport") ?? env.VIGRESS_VIEWPORT);
+  // Video records by default (all artifacts on); --no-video opts out.
+  const videoOff = values["no-video"] === true;
 
   // Batch via --config file
   const configPath = str("config");
@@ -154,7 +156,7 @@ export function buildRunConfig(
       baselineType: detectBaselineType(r.against),
       viewport: r.viewport ?? viewport,
       clip: r.clip,
-      video: r.video ?? true,
+      video: r.video ?? !videoOff,
       regions: r.regions,
       mask: r.mask,
       checklist: r.checklist,
@@ -184,7 +186,7 @@ export function buildRunConfig(
         baselineType,
         viewport,
         clip: parseClip(str("clip")),
-        video: values.video === true,
+        video: !videoOff,
       },
     ],
     opts,

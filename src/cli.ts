@@ -25,6 +25,7 @@ const { values, positionals } = parseArgs({
     viewport: { type: "string" },
     state: { type: "string" },
     video: { type: "boolean" },
+    "no-video": { type: "boolean" },
     clip: { type: "string" },
     threshold: { type: "string" },
     json: { type: "boolean" },

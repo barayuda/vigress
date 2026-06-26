@@ -158,7 +158,8 @@ bun run src/cli.ts --config <file.json> [options]
 | `--out` | string | `out` | Output directory (resolved to an absolute path). |
 | `--viewport` | `WxH` | `1440x900` | Browser viewport for captures. |
 | `--state` | path | — | Playwright storageState JSON (from `login`). |
-| `--video` | boolean | `false` (single) | Record a `.webm` of the capture session. |
+| `--video` | boolean | on | Record a `.webm` of the capture session. Video is **on by default** (all artifacts), so this flag is redundant; kept for explicitness. |
+| `--no-video` | boolean | — | Skip video recording (the only opt-out; everything else is always written). |
 | `--clip` | `x,y,w,h` | — | Crop screenshots to this region (cuts shared chrome). |
 | `--threshold` | number 0–1 | `0.1` | pixelmatch per-pixel color tolerance. |
 | `--json` | boolean | `false` | Print a compact JSON payload to stdout (and nothing else). |
@@ -214,9 +215,10 @@ bun run src/cli.ts --config comparisons.json --state auth.state.json --out out -
 Per-entry fields: `target` and `against` are required; `name`, `clip`,
 `viewport`, and `video` are optional.
 
-> **Note:** in batch mode each entry's `video` defaults to **`true`** (omit it to
-> record, set `"video": false` to skip). In single-run mode `--video` is
-> opt-in (off by default). Global options (`--out`, `--state`, `--viewport`,
+> **Note:** **video records by default in both single-run and batch mode** — all
+> artifacts are on unless you opt out. Pass `--no-video` to skip recording for the
+> whole run, or set `"video": false` on an individual batch entry. Global options
+> (`--out`, `--state`, `--viewport`,
 > `--threshold`, `--json`, `--quiet`, `--max-mismatch`) come from the CLI flags
 > and apply to the whole batch; `--viewport` is the per-entry default when an
 > entry omits its own.
@@ -434,7 +436,7 @@ bun run src/cli.ts --config comparisons.json --state auth.state.json --json --ma
 | `No session at "…"` / pages render logged-out | Run `vigress login --url <app> --state <path>` and pass the same `--state`. Re-run when it expires. |
 | Figma: "no image for node" / 403 | Check `FIGMA_TOKEN`, the `figma:FILEKEY/NODEID` ref (node id uses `:`), and that the token can read that file. |
 | Huge mismatch % but pages "look the same" | Expected noise (fonts/shell/offset). Use `--clip` and judge by the diff image, not the number. |
-| No `.webm` produced | Pass `--video` (single-run mode is opt-in; batch records by default). |
+| No `.webm` produced | Video is on by default — check you didn't pass `--no-video` or set `"video": false` on the entry. |
 | Target needs a VPN | Connect the VPN before running. |
 
 ---
