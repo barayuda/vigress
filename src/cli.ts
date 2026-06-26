@@ -98,6 +98,8 @@ async function main(): Promise<number> {
         baseline: baselineRel,
         diff: diffRel,
         video: videoRel,
+        regions: [],
+        checklist: spec.checklist ?? [],
       });
       log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${d.mismatchPercent}% -> ${diffRel}`);
     }

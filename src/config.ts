@@ -7,14 +7,49 @@ export interface Viewport {
   height: number;
 }
 
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type ChecklistVerdict = "pass" | "fail" | "unresolved" | "manual";
+
+export interface ChecklistItem {
+  aspect: string;
+  region?: string;
+  verdict: ChecklistVerdict;
+  workaround?: string;
+}
+
+export interface RegionSpec {
+  name: string;
+  target?: string; // per-side selector
+  baseline?: string; // per-side selector
+  selector?: string; // both sides
+  clip?: Box; // fallback
+  maxMismatch?: number;
+}
+
+export interface MaskSpec {
+  target?: string;
+  baseline?: string;
+  selector?: string;
+  clip?: Box;
+}
+
 export interface RunSpec {
   name: string;
   target: string;
   against: string;
   baselineType: BaselineType;
   viewport: Viewport;
-  clip?: { x: number; y: number; width: number; height: number };
+  clip?: Box;
   video: boolean;
+  regions?: RegionSpec[];
+  mask?: MaskSpec[];
+  checklist?: ChecklistItem[];
 }
 
 export interface GlobalOpts {
@@ -39,7 +74,7 @@ export function detectBaselineType(against: string): BaselineType {
   return "image";
 }
 
-export function parseClip(s?: string): RunSpec["clip"] {
+export function parseClip(s?: string): Box | undefined {
   if (!s) return undefined;
   const [x, y, width, height] = s.split(",").map((n) => Number(n.trim()));
   return { x, y, width, height };
@@ -52,6 +87,41 @@ function nameFromTarget(target: string): string {
   } catch {
     return "page";
   }
+}
+
+export function selectorForSide(
+  spec: { target?: string; baseline?: string; selector?: string; [k: string]: unknown },
+  side: "target" | "baseline",
+): string | undefined {
+  return (spec[side] as string | undefined) ?? spec.selector;
+}
+
+// Field-delimited by ';', key/value by the first '='. clip keeps its commas.
+function parseKv(s: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of s.split(";")) {
+    const i = part.indexOf("=");
+    if (i === -1) continue;
+    out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+export function parseRegionFlag(s: string): RegionSpec {
+  const kv = parseKv(s);
+  return {
+    name: kv.name,
+    target: kv.target,
+    baseline: kv.baseline,
+    selector: kv.selector,
+    clip: parseClip(kv.clip),
+    maxMismatch: kv.max !== undefined ? Number(kv.max) : undefined,
+  };
+}
+
+export function parseMaskFlag(s: string): MaskSpec {
+  const kv = parseKv(s);
+  return { target: kv.target, baseline: kv.baseline, selector: kv.selector, clip: parseClip(kv.clip) };
 }
 
 export function buildRunConfig(
@@ -85,7 +155,15 @@ export function buildRunConfig(
       viewport: r.viewport ?? viewport,
       clip: r.clip,
       video: r.video ?? true,
+      regions: r.regions,
+      mask: r.mask,
+      checklist: r.checklist,
     }));
+    for (const r of runs) {
+      for (const rg of r.regions ?? []) {
+        if (!rg.name) throw new Error("vigress config: every region needs a non-empty 'name'");
+      }
+    }
     return { runs, opts };
   }
 

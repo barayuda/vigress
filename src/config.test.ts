@@ -1,5 +1,9 @@
 import { describe, it, expect } from "bun:test";
 import { parseViewport, detectBaselineType, parseClip, buildRunConfig } from "./config";
+import { selectorForSide, parseRegionFlag, parseMaskFlag } from "./config";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("parseViewport", () => {
   it("parses WxH", () => expect(parseViewport("1280x720")).toEqual({ width: 1280, height: 720 }));
@@ -42,5 +46,64 @@ describe("buildRunConfig", () => {
   it("max-mismatch parsed into opts", () => {
     const { opts } = buildRunConfig({ target: "http://h/x", against: "http://s/x", "max-mismatch": "5" }, {});
     expect(opts.maxMismatch).toBe(5);
+  });
+});
+
+describe("selectorForSide", () => {
+  it("prefers per-side selector, falls back to shared, else undefined", () => {
+    expect(selectorForSide({ target: ".t", baseline: ".b", selector: ".s" }, "target")).toBe(".t");
+    expect(selectorForSide({ selector: ".s" }, "baseline")).toBe(".s");
+    expect(selectorForSide({ clip: { x: 0, y: 0, width: 1, height: 1 } }, "target")).toBeUndefined();
+  });
+});
+
+describe("parseRegionFlag", () => {
+  it("parses name, per-side selectors, max", () => {
+    const r = parseRegionFlag("name=filter-bar;target=[data-testid=report-filter];baseline=.report__filter;max=2");
+    expect(r.name).toBe("filter-bar");
+    expect(r.target).toBe("[data-testid=report-filter]");
+    expect(r.baseline).toBe(".report__filter");
+    expect(r.maxMismatch).toBe(2);
+  });
+  it("parses a clip box", () => {
+    const r = parseRegionFlag("name=card;clip=277,175,280,205");
+    expect(r.clip).toEqual({ x: 277, y: 175, width: 280, height: 205 });
+  });
+});
+
+describe("parseMaskFlag", () => {
+  it("parses a shared selector and per-side selectors", () => {
+    expect(parseMaskFlag("selector=[data-testid=date-filter]").selector).toBe("[data-testid=date-filter]");
+    const m = parseMaskFlag("target=.timestamp;baseline=.created-at");
+    expect(m.target).toBe(".timestamp");
+    expect(m.baseline).toBe(".created-at");
+  });
+});
+
+describe("buildRunConfig batch regions/mask/checklist", () => {
+  it("passes regions, mask, and checklist through from the config file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vcfg-"));
+    const cfg = join(dir, "c.json");
+    writeFileSync(cfg, JSON.stringify([{
+      name: "contact",
+      target: "http://localhost:3000/reports/contact-v2",
+      against: "https://staging.example.com/reports/contact",
+      regions: [{ name: "filter-bar", target: "[data-testid=report-filter]", baseline: ".report__filter", maxMismatch: 2 }],
+      mask: [{ selector: "[data-testid=date-filter]" }],
+      checklist: [{ aspect: "filter bar width", region: "filter-bar", verdict: "manual" }],
+    }]));
+    const { runs } = buildRunConfig({ config: cfg }, {} as NodeJS.ProcessEnv);
+    expect(runs[0].regions?.[0].name).toBe("filter-bar");
+    expect(runs[0].mask?.[0].selector).toBe("[data-testid=date-filter]");
+    expect(runs[0].checklist?.[0].aspect).toBe("filter bar width");
+  });
+  it("throws a clear error when a region has no name", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vcfg-"));
+    const cfg = join(dir, "bad.json");
+    writeFileSync(cfg, JSON.stringify([{
+      target: "http://localhost:3000/x", against: "http://localhost:3000/y",
+      regions: [{ selector: ".foo" }],
+    }]));
+    expect(() => buildRunConfig({ config: cfg }, {} as NodeJS.ProcessEnv)).toThrow(/region needs a non-empty 'name'/);
   });
 });
