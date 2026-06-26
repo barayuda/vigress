@@ -38,8 +38,8 @@ Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
 `[{ "name","target","against","clip?","viewport?" }, …]`.
 
 ## For AI agents
-- Pass `--json`: stdout is a single object `{ schemaVersion: 2, outDir, reportHtml,
-  runs:[{ name, mismatchPercent, target, baseline, diff, video,
+- Pass `--json`: stdout is a single object `{ schemaVersion: 3, outDir, reportHtml,
+  runs:[{ name, mismatchPercent, target, baseline, diff, video, mode, shots:[],
   regions:[{name,mismatchPercent,verdict,reason,diff}],
   checklist:[{aspect,region,verdict,workaround}] }] }` with absolute
   paths — Read the `diff` PNG; open `reportHtml` for the human view.
@@ -107,6 +107,29 @@ Precedence per side: `target`/`baseline` → `selector` → `clip`.
 --mask   "selector=[data-testid=date-filter]"
 ```
 Fields are delimited by `;`. For `clip`, keep commas in the value: `clip=277,175,280,205`.
+
+## Interaction steps
+
+By default every run **auto-explores safe controls** (comboboxes, popovers, filter
+inputs, aria-expanded buttons) — opening and closing up to 6, recorded in the
+video. This exercises the interactive state of the page without any configuration.
+
+Pass `steps` (in the config) or `--step` (CLI, repeatable) to drive a **precise
+flow** instead. Use a `screenshot` action to capture the interacted state mid-flow:
+the image is saved as `<name>.<shot>.png`, shown in the "flow shots" strip in the
+report, and surfaced in `shots[]` in the JSON payload (not diffed).
+
+Pass `--no-steps` to disable interaction entirely and take a **static** capture.
+
+Interaction runs on the **target only**, after the clean diff screenshot — parity
+is unaffected. The run `mode` (`static` / `explore` / `steps`) appears in both
+the JSON output and the HTML report.
+
+**Default precedence:** `--no-steps` → `static`; `steps`/`--step` present →
+`steps`; otherwise → `explore` (auto-explore, the default).
+
+`summary.json` and `--json` are **schemaVersion 3** and include `mode` and
+`shots[]` on each run entry.
 
 ## Regression workflow
 

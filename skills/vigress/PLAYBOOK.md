@@ -4,6 +4,39 @@ Archetype checklists for per-region scoring and the known-noise/workarounds cata
 
 ---
 
+## Interaction recording
+
+**Default (auto-explore):** every run automatically opens and closes up to 6 safe
+controls (dropdowns, filter inputs, comboboxes, aria-expanded buttons). For
+report/dashboard and form archetypes this is usually enough to exercise the
+filters and inputs in the video — no configuration required.
+
+**Steps (precise flow):** when you need to verify a specific functional state,
+author a `steps` array in the config. A typical pattern: open the target control,
+add a `screenshot` step to capture the interacted state, then dismiss. Example for
+a date filter:
+
+```json
+"steps": [
+  { "action": "click",      "selector": "[data-testid=period-input]" },
+  { "action": "screenshot", "name": "date-open" },
+  { "action": "press",      "key": "Escape" }
+]
+```
+
+The `screenshot` step saves `<name>.date-open.png`, displays it in the "flow
+shots" strip in `report.html`, and surfaces it in `shots[]` in the JSON payload.
+It is not pixel-diffed — it is a visual record of the interacted state.
+
+Use steps when auto-explore is insufficient: e.g. switch a channel selector, open
+a multi-step filter, or verify a drawer/modal that only opens on a specific
+interaction sequence.
+
+**Static capture:** pass `--no-steps` to skip interaction entirely (useful when
+the page has animation or the auto-explore triggers noise).
+
+---
+
 ## report/dashboard
 
 **Detection hints:** The page contains chart or graph elements (bar, line, pie), summary stat cards, a filter bar near the top, and a sticky page or section header. Routes often include `/reports/`, `/analytics/`, or `/dashboard/`.

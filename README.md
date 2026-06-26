@@ -26,6 +26,7 @@ to any application repo.
 - [Baselines](#baselines)
 - [Batch mode (`--config`)](#batch-mode---config)
 - [Regions & masks](#regions--masks)
+- [Interaction steps & auto-explore](#interaction-steps--auto-explore)
 - [Outputs](#outputs)
 - [Using it from an AI agent](#using-it-from-an-ai-agent)
 - [Interpreting the mismatch %](#interpreting-the-mismatch-)
@@ -167,6 +168,8 @@ bun run src/cli.ts --config <file.json> [options]
 | `--quiet` | boolean | `false` | Suppress the per-comparison log lines. |
 | `--max-mismatch` | number (pct) | — | Exit non-zero if any comparison exceeds this %. |
 | `--config` | path | — | Run a batch of comparisons from a JSON file. |
+| `--step` | string (repeatable) | — | Add one interaction step (single-run only). Format: `"action=click;selector=[data-testid=x]"`. See [Interaction steps & auto-explore](#interaction-steps--auto-explore). |
+| `--no-steps` | boolean | — | Disable interaction entirely; capture is static (no auto-explore, no steps). |
 | `--url` | string | — | (login only) the URL to open for sign-in. |
 
 **Subcommand:** `login` — opens a headed browser to capture a `storageState`.
@@ -303,6 +306,94 @@ Fields are delimited by `;`, key=value.
 
 ---
 
+## Interaction steps & auto-explore
+
+After the clean diff screenshot (so parity is unaffected), `vigress` can interact
+with the target page — driving UI controls and capturing mid-flow screenshots that
+appear in the report and the JSON payload. The interaction is **target-only** and
+is recorded in the video.
+
+### Default precedence
+
+| Condition | Mode |
+|-----------|------|
+| `--no-steps` | `static` — no interaction, clean capture only |
+| `steps` array in config or one or more `--step` flags | `steps` — runs the explicit flow |
+| neither of the above (the default) | `explore` — auto-explores safe controls |
+
+### Auto-explore (the default)
+
+When no steps are configured and `--no-steps` is not set, `vigress` opens and
+closes up to **6 safe controls** on the page, then continues. Safety caps:
+
+- **Safelist:** `[role=combobox]`, `[aria-haspopup]`, `[data-testid$="-input"]`,
+  `button[aria-expanded]` — only these selectors are touched.
+- **~12 s total cap** — aborts if the deadline is reached.
+- **Destructive-text skip** — any control whose text matches
+  `delete`, `remove`, `logout`, `sign-out`, or `hapus` (case-insensitive) is
+  skipped.
+- **URL-change abort** — if a click navigates the page, `vigress` goes back and
+  stops immediately.
+- Never submits forms, never mutates data.
+
+### Explicit steps
+
+Add a `steps` array to a config entry, or pass `--step` on the CLI (repeatable).
+Each step is a `key=value` string delimited by `;`:
+
+```bash
+# Click a combobox, then dismiss
+--step "action=click;selector=[data-testid=period-input]" \
+--step "action=screenshot;name=date-open" \
+--step "action=press;key=Escape"
+```
+
+**Step action table:**
+
+| `action` | Required fields | Optional fields | Behaviour |
+|----------|-----------------|-----------------|-----------|
+| `click` | `selector` | — | Clicks the first matching element. |
+| `fill` | `selector`, `value` | — | Types `value` into the field. |
+| `select` | `selector`, `value` | — | Selects `value` in a `<select>`. |
+| `hover` | `selector` | — | Hovers over the element (triggers tooltips). |
+| `press` | `key` | `selector` | Presses a keyboard key. If `selector` is given, focuses that element first; otherwise sends the key to the page globally. |
+| `waitFor` | `selector` OR `ms` | — | Waits until the element is visible, or for `ms` milliseconds. |
+| `scroll` | `selector` OR `by` | — | Scrolls the element into view, or scrolls the page by `by` pixels. |
+| `screenshot` | `name` | — | Saves `<name>.<shot>.png` in the output directory. The file appears in the "flow shots" strip in `report.html` and in `shots[]` in the JSON payload, but is **not** diffed. |
+
+Each step is best-effort: a failure is logged to stderr and skipped; it never
+aborts the rest of the flow.
+
+**Config example with steps:**
+
+```json
+{
+  "name": "contact",
+  "target": "https://localhost:3000/reports/contact-v2",
+  "against": "https://staging.example.com/reports/contact",
+  "steps": [
+    { "action": "click",      "selector": "[data-testid=period-input]" },
+    { "action": "screenshot", "name": "date-open" },
+    { "action": "press",      "key": "Escape" }
+  ]
+}
+```
+
+### New outputs (schemaVersion 3)
+
+`summary.json` and the `--json` payload are now **`schemaVersion: 3`**. Each run
+entry adds:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mode` | `"static"` \| `"explore"` \| `"steps"` | Which interaction mode ran. |
+| `shots[]` | `{ name, path }[]` | Mid-flow screenshot files (empty unless `screenshot` steps ran). `path` is relative to `outDir` in `summary.json`, absolute in `--json`. |
+
+`report.html` includes a **"flow shots" strip** below each comparison card when
+`shots` are present.
+
+---
+
 ## Outputs
 
 Everything lands in `--out` (default `out/`, git-ignored). For a comparison
@@ -325,7 +416,7 @@ video. It references the artifacts by relative path, so open it directly
 **`summary.json`** (artifact paths are **relative** to `outDir`):
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "outDir": "/abs/path/out",
   "reportHtml": "report.html",
   "summaryJson": "summary.json",
@@ -339,7 +430,9 @@ video. It references the artifacts by relative path, so open it directly
       "target": "contact.target.png",
       "baseline": "contact.baseline.png",
       "diff": "contact.diff.png",
-      "video": "video/abc.webm"
+      "video": "video/abc.webm",
+      "mode": "explore",
+      "shots": []
     }
   ]
 }
@@ -356,12 +449,13 @@ shape as `summary.json` but with **absolute** artifact paths, ready to read:
 bun run src/cli.ts --target … --against … --state auth.state.json --json --quiet
 ```
 ```json
-{ "schemaVersion": 1, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
+{ "schemaVersion": 3, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
   "summaryJson": "/abs/out/summary.json",
   "runs": [ { "name": "contact", "baselineType": "url", "viewport": {"width":1440,"height":900},
               "mismatchPixels": 12345, "mismatchPercent": 4.2,
               "target": "/abs/out/contact.target.png", "baseline": "/abs/out/contact.baseline.png",
-              "diff": "/abs/out/contact.diff.png", "video": "/abs/out/video/abc.webm" } ] }
+              "diff": "/abs/out/contact.diff.png", "video": "/abs/out/video/abc.webm",
+              "mode": "explore", "shots": [] } ] }
 ```
 
 An agent can parse this, **read** the `diff` PNG to inspect changes, open
