@@ -1,7 +1,30 @@
-import type { RunResult, Summary } from "./types";
+import type { RunResult, RegionScore, Summary } from "./types";
+import type { ChecklistItem } from "./config";
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+}
+
+function regionRows(regions: RegionScore[]): string {
+  if (!regions.length) return "";
+  const rows = regions.map((r) => `
+      <tr class="v-${r.verdict}">
+        <td>${esc(r.name)}</td>
+        <td>${r.mismatchPercent}%</td>
+        <td>${esc(r.verdict)} (${esc(r.reason)})</td>
+        <td>${r.diff ? `<img class="thumb" src="${esc(r.diff)}" alt="${esc(r.name)} diff">` : "—"}</td>
+      </tr>`).join("");
+  return `
+    <table class="regions">
+      <thead><tr><th>region</th><th>score</th><th>verdict</th><th>diff</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function checklistList(items: ChecklistItem[]): string {
+  if (!items.length) return "";
+  const lis = items.map((c) => `<li class="v-${c.verdict}"><b>${esc(c.verdict)}</b> — ${esc(c.aspect)}${c.workaround ? ` <i>(${esc(c.workaround)})</i>` : ""}</li>`).join("");
+  return `<ul class="checklist">${lis}</ul>`;
 }
 
 function card(r: RunResult): string {
@@ -18,6 +41,8 @@ function card(r: RunResult): string {
       <figure><figcaption>baseline</figcaption><img src="${esc(r.baseline)}" alt="baseline"></figure>
       <figure><figcaption>diff</figcaption><img src="${esc(r.diff)}" alt="diff"></figure>
     </div>
+    ${regionRows(r.regions)}
+    ${checklistList(r.checklist)}
     ${video}
   </section>`;
 }
@@ -45,6 +70,13 @@ export function buildReportHtml(summary: Summary): string {
   img{width:100%;border:1px solid #ebf0f1;background:#fff}
   .vid{margin-top:12px}
   video{max-width:100%;border:1px solid #ebf0f1}
+  table.regions{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+  table.regions th,table.regions td{text-align:left;padding:6px 8px;border-bottom:1px solid #ebf0f1;vertical-align:middle}
+  .thumb{width:120px;border:1px solid #ebf0f1}
+  tr.v-fail td,li.v-fail{color:#b42318}
+  tr.v-pass td,li.v-pass{color:#067647}
+  tr.v-unresolved td,li.v-unresolved{color:#a16207}
+  ul.checklist{margin:12px 0 0;padding-left:18px}
 </style>
 </head>
 <body>

@@ -19,6 +19,17 @@ export function buildJsonPayload(summary: Summary): object {
       baseline: abs(r.baseline),
       diff: abs(r.diff),
       video: r.video ? abs(r.video) : undefined,
+      regions: r.regions.map((rg) => ({
+        name: rg.name,
+        mismatchPixels: rg.mismatchPixels,
+        mismatchPercent: rg.mismatchPercent,
+        verdict: rg.verdict,
+        reason: rg.reason,
+        targetBox: rg.targetBox,
+        baselineBox: rg.baselineBox,
+        diff: rg.diff ? abs(rg.diff) : undefined,
+      })),
+      checklist: r.checklist,
     })),
   };
 }
