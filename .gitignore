@@ -6,5 +6,6 @@ out/
 *.state.json
 *.log
 .sdd-progress.md
+.superpowers/
 smoke.regions.json
 contact.regions.json
