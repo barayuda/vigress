@@ -1,6 +1,33 @@
 import { PNG } from "pngjs";
+import type { Page } from "playwright";
 import type { Box } from "./config";
 import type { BoxDims, RegionVerdict, RegionReason } from "./types";
+
+export interface BoxItem {
+  key: string;
+  selector?: string;
+  clip?: Box;
+}
+
+export async function resolveBoxes(
+  page: Page,
+  items: BoxItem[],
+): Promise<Record<string, Box | null>> {
+  const out: Record<string, Box | null> = {};
+  for (const it of items) {
+    if (it.selector) {
+      try {
+        const bb = await page.locator(it.selector).first().boundingBox();
+        out[it.key] = bb ? { x: bb.x, y: bb.y, width: bb.width, height: bb.height } : null;
+      } catch {
+        out[it.key] = null;
+      }
+    } else {
+      out[it.key] = it.clip ?? null;
+    }
+  }
+  return out;
+}
 
 export interface RGB {
   r: number;
