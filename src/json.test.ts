@@ -40,7 +40,7 @@ describe("buildJsonPayload regions + checklist", () => {
       }],
     };
     const p = buildJsonPayload(s) as any;
-    expect(p.schemaVersion).toBe(2);
+    expect(p.schemaVersion).toBe(SCHEMA_VERSION);
     expect(p.runs[0].regions[0].diff).toBe("/tmp/out/contact.filter-bar.diff.png");
     expect(p.runs[0].regions[0].verdict).toBe("fail");
     expect(p.runs[0].checklist[0].aspect).toBe("filter bar width");
