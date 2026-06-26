@@ -256,9 +256,9 @@ Per-region scoring lets you isolate specific UI areas, giving each a separate mi
     { "target": "[data-testid=live-count]", "baseline": ".count--live" }
   ],
   "checklist": [
-    { "aspect": "filter-bar width/stretch", "region": "filter-bar", "verdict": "pending" },
-    { "aspect": "summary-card radius/border/proportions", "region": "summary-cards", "verdict": "pending" },
-    { "aspect": "chart legend/tick density", "region": "chart-legend", "verdict": "pending" }
+    { "aspect": "filter-bar width/stretch", "region": "filter-bar", "verdict": "unresolved" },
+    { "aspect": "summary-card radius/border/proportions", "region": "summary-cards", "verdict": "unresolved" },
+    { "aspect": "chart legend/tick density", "region": "chart-legend", "verdict": "unresolved" }
   ]
 }
 ```
@@ -289,7 +289,7 @@ Fields are delimited by `;`, key=value.
 | File | What it is |
 |------|------------|
 | `out/<name>.<region>.diff.png` | per-region pixel-diff heatmap |
-| `out/checklist.md` | markdown checklist of aspects with pass/fail verdict |
+| `out/checklist.md` | markdown checklist of aspects with pass/fail/unresolved verdict |
 | `out/report.html` | now includes a per-region table (region · score · verdict+reason · diff thumbnail) and a checklist section |
 
 `summary.json` and the `--json` payload are now `schemaVersion: 2` and include `regions[]` (per-region `name`, `verdict`, `reason`, `mismatchPercent`) and `checklist[]` (per-aspect `aspect`, `region`, `verdict`, `workaround`).

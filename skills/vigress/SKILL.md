@@ -32,8 +32,10 @@ Outputs in `out/`: `<name>.{target,baseline,diff}.png`, `video/*.webm`,
 `[{ "name","target","against","clip?","viewport?" }, …]`.
 
 ## For AI agents
-- Pass `--json`: stdout is a single object `{ schemaVersion, outDir, reportHtml,
-  runs:[{ name, mismatchPercent, target, baseline, diff, video }] }` with absolute
+- Pass `--json`: stdout is a single object `{ schemaVersion: 2, outDir, reportHtml,
+  runs:[{ name, mismatchPercent, target, baseline, diff, video,
+  regions:[{name,mismatchPercent,verdict,reason,diff}],
+  checklist:[{aspect,region,verdict,workaround}] }] }` with absolute
   paths — Read the `diff` PNG; open `reportHtml` for the human view.
 - `--quiet` to suppress chatter; `--max-mismatch <pct>` to make it exit non-zero
   (gate). The mismatch % is noisy (token/shell/render differences) — treat the
@@ -70,8 +72,8 @@ A config entry (or a single run) can include fine-grained sub-regions, noise mas
     { "selector": "[data-testid=date-filter]" }
   ],
   "checklist": [
-    { "aspect": "filter-bar width/stretch", "region": "filter-bar", "verdict": "pending" },
-    { "aspect": "summary-card radius/border/proportions", "region": "summary-cards", "verdict": "pending" }
+    { "aspect": "filter-bar width/stretch", "region": "filter-bar", "verdict": "unresolved" },
+    { "aspect": "summary-card radius/border/proportions", "region": "summary-cards", "verdict": "unresolved" }
   ]
 }
 ```
