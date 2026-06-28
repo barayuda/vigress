@@ -1,9 +1,30 @@
 import { join } from "node:path";
 import type { Page } from "playwright";
 import type { Step } from "./config";
-import type { Shot } from "./types";
+import type { Shot, StepResult } from "./types";
 
 // --- pure ---
+
+export function isCheckStep(step: Step): boolean {
+  switch (step.action) {
+    case "click":
+    case "fill":
+    case "select":
+    case "hover":
+      return true;
+    case "press":
+    case "scroll":
+    case "waitFor":
+      return !!step.selector;
+    case "screenshot":
+      return false;
+  }
+}
+
+export function stepSummary(results: StepResult[]): { ok: number; total: number } {
+  const checks = results.filter((r) => r.check);
+  return { ok: checks.filter((r) => r.status === "ok").length, total: checks.length };
+}
 
 export function isDestructiveText(text: string): boolean {
   return /\b(delete|remove|log\s?out|sign[-\s]?out|hapus)\b/i.test(text);

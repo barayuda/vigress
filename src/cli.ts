@@ -189,6 +189,7 @@ async function main(): Promise<number> {
         checklist,
         mode,
         shots,
+        steps: [],
       });
       log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${full.mismatchPercent}% · ${mode} · ${regions.length} region(s) -> ${diffRel}`);
     }

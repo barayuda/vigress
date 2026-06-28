@@ -1,6 +1,6 @@
-import type { BaselineType, Viewport, ChecklistItem } from "./config";
+import type { BaselineType, Viewport, ChecklistItem, StepAction } from "./config";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export interface BoxDims {
   width: number;
@@ -28,6 +28,15 @@ export interface Shot {
   path: string; // relative to outDir
 }
 
+export interface StepResult {
+  index: number; // 1-based step number
+  action: StepAction;
+  selector?: string;
+  check: boolean; // true = a functionality check (acts on a selector)
+  status: "ok" | "failed";
+  error?: string; // present when status === "failed"
+}
+
 export interface RunResult {
   name: string;
   baselineType: BaselineType;
@@ -42,6 +51,7 @@ export interface RunResult {
   checklist: ChecklistItem[]; // [] when none
   mode: RunMode; // "static" | "explore" | "steps"
   shots: Shot[]; // [] unless screenshot steps ran
+  steps: StepResult[]; // [] for static/explore
 }
 
 export interface Summary {

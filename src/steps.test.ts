@@ -22,3 +22,35 @@ describe("exploreSelector", () => {
     expect(EXPLORE_SELECTORS).toContain('[data-testid$="-input"]');
   });
 });
+
+import { isCheckStep, stepSummary } from "./steps";
+import type { StepResult } from "./types";
+
+describe("isCheckStep", () => {
+  it("click/fill/select/hover are always checks", () => {
+    for (const action of ["click", "fill", "select", "hover"] as const) {
+      expect(isCheckStep({ action, selector: "#x" })).toBe(true);
+    }
+  });
+  it("press/scroll/waitFor are checks only with a selector", () => {
+    expect(isCheckStep({ action: "press", key: "Escape" })).toBe(false);
+    expect(isCheckStep({ action: "press", key: "Enter", selector: "#x" })).toBe(true);
+    expect(isCheckStep({ action: "waitFor", ms: 100 })).toBe(false);
+    expect(isCheckStep({ action: "waitFor", selector: "#x" })).toBe(true);
+    expect(isCheckStep({ action: "scroll", by: 100 })).toBe(false);
+    expect(isCheckStep({ action: "scroll", selector: "#x" })).toBe(true);
+  });
+  it("screenshot is never a check", () => {
+    expect(isCheckStep({ action: "screenshot", name: "s" })).toBe(false);
+  });
+});
+
+describe("stepSummary", () => {
+  const mk = (check: boolean, status: "ok" | "failed"): StepResult => ({ index: 1, action: "click", check, status });
+  it("counts only check steps", () => {
+    expect(stepSummary([mk(true, "ok"), mk(true, "failed"), mk(false, "ok")])).toEqual({ ok: 1, total: 2 });
+  });
+  it("returns zero total when there are no check steps", () => {
+    expect(stepSummary([mk(false, "ok")])).toEqual({ ok: 0, total: 0 });
+  });
+});
