@@ -63,9 +63,9 @@ A config entry (or a single run) can include fine-grained sub-regions, noise mas
 **Config shape (`regions[]`):**
 ```json
 {
-  "name": "contact",
-  "target": "https://localhost:3000/reports/contact-v2",
-  "against": "https://staging.example.com/reports/contact",
+  "name": "dashboard",
+  "target": "http://localhost:3000/dashboard",
+  "against": "https://staging.example.com/dashboard",
   "regions": [
     {
       "name": "filter-bar",
@@ -160,6 +160,38 @@ Set `VIGRESS_DWELL=<ms>` (default `1000`) to control how long vigress holds afte
 each step before proceeding. A higher value gives the video more time to show
 each interaction clearly.
 
+## Full check (UI parity + functionality + UX in one run)
+
+The **full check** is the recommended run for verifying a migrated or
+redesigned page against staging: one config that emits all three signals in a
+single report — **UI parity** (regions scorecard + masks vs the baseline),
+**functionality** (per-step pass/fail for every filter AND download via
+`data-testid`), and a dwell-paced **UX walkthrough** video. Use it instead of a
+plain visual diff whenever the page has interactive controls worth proving.
+
+Name the config `<page>.fullcheck.json`. It combines:
+- `regions` + `mask` → the visual parity scorecard (see "Regions, masks & checklists")
+- `checklist` → ties each region to a named aspect
+- `steps` → drives every interactive control (filters + downloads) so each
+  reports an ok/failed functionality check (see "Interaction steps")
+
+```bash
+bun run src/cli.ts --config <page>.fullcheck.json --state auth.state.json --json
+```
+
+Interaction `steps` run on the **target only**, after the clean diff
+screenshot — so functionality `data-testid`s only need to exist on the target
+(the new app); the `against` baseline (e.g. staging) needs none, and parity is
+unaffected. Open the resulting `report.html`: scorecard table + checklist +
+`functionality: X/Y checks passed` + flow-shots + video. Add `--require-steps`
+(optionally with `--max-mismatch`) to gate on both interaction health and drift.
+
+A typical full check defines ~4–8 parity regions plus `steps` covering every
+filter and download control, producing a scorecard + an `X/Y checks passed`
+functionality table + a UX video in one report. Keep the config in the project
+repo you are testing (e.g. `<page>.fullcheck.json`), not in this skill — the
+skill is project-agnostic; the configs are project-specific.
+
 ## Regression workflow
 
 See PLAYBOOK.md for archetype checklists + the known-noise/workarounds catalog.
@@ -167,7 +199,7 @@ See PLAYBOOK.md for archetype checklists + the known-noise/workarounds catalog.
 1. **Determine target + baseline URLs and the archetype.** Inspect the page or ask: is it a report/dashboard, table/list, form, or nav-sidebar?
 2. **Read the matching PLAYBOOK.md archetype section.** Note the suggested region selectors and verify-methods for each aspect you need to check.
 3. **Inspect the live DOM** to resolve per-side selectors (target app may use `data-testid`; baseline may use BEM classes). Identify dynamic elements (timestamps, live counts, date badges) to add to `mask`.
-4. **Write a vigress config** with `regions` (one per checklist aspect), `mask` (one per dynamic element), and a `checklist` array tying each aspect to its region name.
+4. **Write a vigress config** with `regions` (one per checklist aspect), `mask` (one per dynamic element), and a `checklist` array tying each aspect to its region name. To make it a **full check**, also add `steps` covering every filter and download (see "Full check") and name the file `<page>.fullcheck.json`.
 5. **Run:**
    ```bash
    bun run src/cli.ts --config <file> --state auth.state.json --json
