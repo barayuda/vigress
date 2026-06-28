@@ -4,6 +4,8 @@
   "type": "module",
   "version": "0.1.0",
   "description": "General-purpose visual-regression CLI (URL/image/Figma baselines, pixel diff + video)",
+  "license": "MIT",
+  "author": "Bara Yuda",
   "bin": { "vigress": "./src/cli.ts" },
   "scripts": {
     "test": "bun test",
