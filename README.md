@@ -460,9 +460,9 @@ video. It references the artifacts by relative path, so open it directly
       "mode": "steps",
       "shots": [],
       "steps": [
-        { "index": 0, "action": "click", "selector": "[data-testid=period-input]", "check": true, "status": "ok" },
-        { "index": 1, "action": "screenshot", "check": false, "status": "ok" },
-        { "index": 2, "action": "press", "check": false, "status": "ok" }
+        { "index": 1, "action": "click", "selector": "[data-testid=period-input]", "check": true, "status": "ok" },
+        { "index": 2, "action": "screenshot", "check": false, "status": "ok" },
+        { "index": 3, "action": "press", "check": false, "status": "ok" }
       ]
     }
   ]
@@ -487,7 +487,7 @@ bun run src/cli.ts --target … --against … --state auth.state.json --json --q
               "target": "/abs/out/contact.target.png", "baseline": "/abs/out/contact.baseline.png",
               "diff": "/abs/out/contact.diff.png", "video": "/abs/out/video/abc.webm",
               "mode": "steps", "shots": [],
-              "steps": [{"index":0,"action":"click","selector":"[data-testid=x]","check":true,"status":"ok"}] } ] }
+              "steps": [{"index":1,"action":"click","selector":"[data-testid=x]","check":true,"status":"ok"}] } ] }
 ```
 
 An agent can parse this, **read** the `diff` PNG to inspect changes, open

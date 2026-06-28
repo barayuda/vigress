@@ -35,10 +35,11 @@ function shotStrip(shots: Shot[]): string {
 }
 
 function functionalitySteps(steps: StepResult[]): string {
-  if (!steps.length) return "";
+  const checks = steps.filter((s) => s.check);
+  if (!checks.length) return "";
   const { ok, total } = stepSummary(steps);
   const header = total ? `<div class="fn-label">functionality: ${ok}/${total} checks passed</div>` : "";
-  const rows = steps.map((s) => `
+  const rows = checks.map((s) => `
       <tr class="v-${s.status === "ok" ? "pass" : "fail"}">
         <td>${s.index}</td>
         <td>${esc(s.action)}</td>

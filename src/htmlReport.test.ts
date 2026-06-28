@@ -121,4 +121,27 @@ describe("buildReportHtml functionality steps", () => {
     expect(html).toContain("✓");
     expect(html).toContain("✗");
   });
+
+  it("excludes non-check steps from the functionality table and renders failed step error", () => {
+    const s: Summary = {
+      schemaVersion: SCHEMA_VERSION, outDir: "/tmp/out", reportHtml: "report.html", summaryJson: "summary.json",
+      runs: [{
+        name: "c", baselineType: "url", viewport: { width: 1440, height: 900 },
+        mismatchPixels: 0, mismatchPercent: 0,
+        target: "c.target.png", baseline: "c.baseline.png", diff: "c.diff.png",
+        regions: [], checklist: [], mode: "steps", shots: [],
+        steps: [
+          { index: 1, action: "click", selector: "[data-testid=btn]", check: true, status: "failed", error: "not found" },
+          { index: 2, action: "screenshot", check: false, status: "ok" },
+        ],
+      }],
+    };
+    const html = buildReportHtml(s);
+    // The screenshot (non-check) step must not appear as a table row
+    expect(html).not.toContain(">screenshot<");
+    // The failed check step's error text must appear
+    expect(html).toContain("not found");
+    // The count header should reflect only the one check step
+    expect(html).toContain("functionality: 0/1 checks passed");
+  });
 });
