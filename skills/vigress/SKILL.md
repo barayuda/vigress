@@ -38,14 +38,18 @@ Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
 `[{ "name","target","against","clip?","viewport?" }, …]`.
 
 ## For AI agents
-- Pass `--json`: stdout is a single object `{ schemaVersion: 3, outDir, reportHtml,
+- Pass `--json`: stdout is a single object `{ schemaVersion: 4, outDir, reportHtml,
   runs:[{ name, mismatchPercent, target, baseline, diff, video, mode, shots:[],
+  steps:[{index,action,selector?,check,status,error?}],
   regions:[{name,mismatchPercent,verdict,reason,diff}],
   checklist:[{aspect,region,verdict,workaround}] }] }` with absolute
   paths — Read the `diff` PNG; open `reportHtml` for the human view.
 - `--quiet` to suppress chatter; `--max-mismatch <pct>` to make it exit non-zero
   (gate). The mismatch % is noisy (token/shell/render differences) — treat the
   diff image + video as the real signal, not a hard pass/fail, unless gating.
+- `--require-steps` exits non-zero if any functionality check step failed (any
+  `steps[]` entry with `check: true` has `status: "failed"`). Combines with
+  `--max-mismatch`.
 
 ## Best practices
 - Match the viewport on both sides (`--viewport WxH`, default 1440×900).
@@ -128,8 +132,33 @@ the JSON output and the HTML report.
 **Default precedence:** `--no-steps` → `static`; `steps`/`--step` present →
 `steps`; otherwise → `explore` (auto-explore, the default).
 
-`summary.json` and `--json` are **schemaVersion 3** and include `mode` and
-`shots[]` on each run entry.
+### Per-step pass/fail results
+
+Each step reports a result. `summary.json` and `--json` are **schemaVersion 4**
+and include `mode`, `shots[]`, and `steps[]` on each run entry. The `steps[]`
+shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
+
+- `check: true` for selector-dependent actions (`click`, `fill`, `select`,
+  `hover`; `press`/`scroll`/`waitFor` when a `selector` is given) — these count
+  as **functionality checks**.
+- `check: false` for `screenshot` and selector-less `press`/`scroll`/`waitFor`.
+- `status: "ok"` means the selector resolved and the action ran; `"failed"` means
+  the element was not found or the action threw (the error is in `error`).
+
+`report.html` shows a **Functionality table** per run (`# · action · selector ·
+result ✓/✗`, failed rows red) and a header line
+`functionality: X/Y checks passed`.
+
+### Gating on failed checks
+
+Pass `--require-steps` to exit non-zero if any check step failed. This combines
+with `--max-mismatch` so you can gate on both visual drift and interaction health.
+
+### Controlling dwell time
+
+Set `VIGRESS_DWELL=<ms>` (default `1000`) to control how long vigress holds after
+each step before proceeding. A higher value gives the video more time to show
+each interaction clearly.
 
 ## Regression workflow
 

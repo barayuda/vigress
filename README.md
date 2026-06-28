@@ -167,6 +167,7 @@ bun run src/cli.ts --config <file.json> [options]
 | `--json` | boolean | `false` | Print a compact JSON payload to stdout (and nothing else). |
 | `--quiet` | boolean | `false` | Suppress the per-comparison log lines. |
 | `--max-mismatch` | number (pct) | — | Exit non-zero if any comparison exceeds this %. |
+| `--require-steps` | boolean | `false` | Exit non-zero if any functionality check step failed (i.e. any step with `check: true` has `status: "failed"`). Combines with `--max-mismatch`. |
 | `--config` | path | — | Run a batch of comparisons from a JSON file. |
 | `--step` | string (repeatable) | — | Add one interaction step (single-run only). Format: `"action=click;selector=[data-testid=x]"`. See [Interaction steps & auto-explore](#interaction-steps--auto-explore). |
 | `--no-steps` | boolean | — | Disable interaction entirely; capture is static (no auto-explore, no steps). |
@@ -292,7 +293,7 @@ Fields are delimited by `;`, key=value.
 
 > **Note:** `--region` and `--mask` apply to single runs only and are ignored in `--config` batch mode. Put `regions` and `mask` entries directly in the config file instead.
 
-### New outputs (schemaVersion 3)
+### New outputs
 
 | File | What it is |
 |------|------------|
@@ -300,7 +301,7 @@ Fields are delimited by `;`, key=value.
 | `out/checklist.md` | markdown checklist of aspects with pass/fail/unresolved verdict |
 | `out/report.html` | now includes a per-region table (region · score · verdict+reason · diff thumbnail) and a checklist section |
 
-`summary.json` and the `--json` payload are now `schemaVersion: 3` and include `regions[]` (per-region `name`, `verdict`, `reason`, `mismatchPercent`), `checklist[]` (per-aspect `aspect`, `region`, `verdict`, `workaround`), `mode`, and `shots[]`.
+`summary.json` and the `--json` payload include `regions[]` (per-region `name`, `verdict`, `reason`, `mismatchPercent`), `checklist[]` (per-aspect `aspect`, `region`, `verdict`, `workaround`), `mode`, and `shots[]`.
 
 **Masked artifacts:** the saved `<name>.target.png` and `<name>.baseline.png` show the magenta mask boxes — the report reflects exactly what was compared, making mask coverage auditable.
 
@@ -379,15 +380,40 @@ aborts the rest of the flow.
 }
 ```
 
-### New outputs (schemaVersion 3)
+### Per-step results
 
-`summary.json` and the `--json` payload are now **`schemaVersion: 3`**. Each run
+Each step now reports a pass/fail result. `summary.json` and the `--json`
+payload gain a `steps[]` array on each run entry:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `index` | number | Zero-based position of the step in the steps array. |
+| `action` | string | The step action (`click`, `fill`, `press`, etc.). |
+| `selector` | string? | The selector used (omitted for `screenshot`, `press`/`scroll`/`waitFor` without a selector). |
+| `check` | boolean | Whether this step is a **functionality check**: `true` for `click`, `fill`, `select`, `hover` (always); `press`, `scroll`, `waitFor` with a selector; `false` for `screenshot` and selector-less `press`/`scroll`/`waitFor`. |
+| `status` | `"ok"` \| `"failed"` | `"ok"` means the selector resolved and the action ran; `"failed"` means the element was not found or the action threw. |
+| `error` | string? | Error message when `status` is `"failed"`. |
+
+`report.html` shows a **Functionality table** per run — one row per step where
+`check` is `true`, with columns `# · action · selector · result (✓/✗)`. Failed
+rows are highlighted in red and show the error message. The card header shows:
+
+```
+functionality: X/Y checks passed
+```
+
+where `X` is the count of `ok` check-steps and `Y` is the total check-steps.
+
+### New outputs (schemaVersion 4)
+
+`summary.json` and the `--json` payload are now **`schemaVersion: 4`**. Each run
 entry adds:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `mode` | `"static"` \| `"explore"` \| `"steps"` | Which interaction mode ran. |
 | `shots[]` | `{ name, path }[]` | Mid-flow screenshot files (empty unless `screenshot` steps ran). `path` is relative to `outDir` in `summary.json`, absolute in `--json`. |
+| `steps[]` | `{ index, action, selector?, check, status, error? }[]` | Per-step result (empty in `static`/`explore` mode). |
 
 `report.html` includes a **"flow shots" strip** below each comparison card when
 `shots` are present.
@@ -416,7 +442,7 @@ video. It references the artifacts by relative path, so open it directly
 **`summary.json`** (artifact paths are **relative** to `outDir`):
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "outDir": "/abs/path/out",
   "reportHtml": "report.html",
   "summaryJson": "summary.json",
@@ -431,8 +457,13 @@ video. It references the artifacts by relative path, so open it directly
       "baseline": "contact.baseline.png",
       "diff": "contact.diff.png",
       "video": "video/abc.webm",
-      "mode": "explore",
-      "shots": []
+      "mode": "steps",
+      "shots": [],
+      "steps": [
+        { "index": 0, "action": "click", "selector": "[data-testid=period-input]", "check": true, "status": "ok" },
+        { "index": 1, "action": "screenshot", "check": false, "status": "ok" },
+        { "index": 2, "action": "press", "check": false, "status": "ok" }
+      ]
     }
   ]
 }
@@ -449,13 +480,14 @@ shape as `summary.json` but with **absolute** artifact paths, ready to read:
 bun run src/cli.ts --target … --against … --state auth.state.json --json --quiet
 ```
 ```json
-{ "schemaVersion": 3, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
+{ "schemaVersion": 4, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
   "summaryJson": "/abs/out/summary.json",
   "runs": [ { "name": "contact", "baselineType": "url", "viewport": {"width":1440,"height":900},
               "mismatchPixels": 12345, "mismatchPercent": 4.2,
               "target": "/abs/out/contact.target.png", "baseline": "/abs/out/contact.baseline.png",
               "diff": "/abs/out/contact.diff.png", "video": "/abs/out/video/abc.webm",
-              "mode": "explore", "shots": [] } ] }
+              "mode": "steps", "shots": [],
+              "steps": [{"index":0,"action":"click","selector":"[data-testid=x]","check":true,"status":"ok"}] } ] }
 ```
 
 An agent can parse this, **read** the `diff` PNG to inspect changes, open
@@ -497,6 +529,7 @@ CLI flags always win over env vars. Bun auto-loads `.env`.
 | `VIGRESS_OUT` | default output dir | `--out` |
 | `VIGRESS_STATE` | default storageState path | `--state` |
 | `VIGRESS_VIEWPORT` | default viewport (`WxH`) | `--viewport` |
+| `VIGRESS_DWELL` | milliseconds to hold after each interaction step (default `1000`), giving the video time to show each step clearly | — |
 
 ---
 
