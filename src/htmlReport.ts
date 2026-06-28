@@ -1,5 +1,6 @@
-import type { RunResult, RegionScore, Shot, Summary } from "./types";
+import type { RunResult, RegionScore, Shot, StepResult, Summary } from "./types";
 import type { ChecklistItem } from "./config";
+import { stepSummary } from "./steps";
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
@@ -33,6 +34,24 @@ function shotStrip(shots: Shot[]): string {
   return `<div class="shots"><div class="shots-label">flow shots</div><div class="imgs">${figs}</div></div>`;
 }
 
+function functionalitySteps(steps: StepResult[]): string {
+  if (!steps.length) return "";
+  const { ok, total } = stepSummary(steps);
+  const header = total ? `<div class="fn-label">functionality: ${ok}/${total} checks passed</div>` : "";
+  const rows = steps.map((s) => `
+      <tr class="v-${s.status === "ok" ? "pass" : "fail"}">
+        <td>${s.index}</td>
+        <td>${esc(s.action)}</td>
+        <td>${s.selector ? esc(s.selector) : "—"}</td>
+        <td>${s.status === "ok" ? "✓" : "✗"}${s.error ? ` <span class="fn-err">${esc(s.error)}</span>` : ""}</td>
+      </tr>`).join("");
+  return `${header}
+    <table class="regions steps">
+      <thead><tr><th>#</th><th>action</th><th>selector</th><th>result</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 function card(r: RunResult): string {
   const video = r.video
     ? `<div class="vid"><video src="${esc(r.video)}" controls muted></video></div>`
@@ -49,6 +68,7 @@ function card(r: RunResult): string {
     </div>
     ${regionRows(r.regions)}
     ${checklistList(r.checklist)}
+    ${functionalitySteps(r.steps)}
     ${shotStrip(r.shots)}
     ${video}
   </section>`;
@@ -86,6 +106,8 @@ export function buildReportHtml(summary: Summary): string {
   ul.checklist{margin:12px 0 0;padding-left:18px}
   .shots{margin-top:12px}
   .shots-label{color:#656f80;font-size:12px;margin-bottom:4px}
+  .fn-label{color:#656f80;font-size:12px;margin-top:12px}
+  .fn-err{color:#b42318;font-size:12px}
 </style>
 </head>
 <body>

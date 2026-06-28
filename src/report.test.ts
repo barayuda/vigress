@@ -42,7 +42,7 @@ const makeSummary = (outDir: string): Summary => ({
           verdict: "fail",
         },
       ],
-      mode: "static", shots: [],
+      mode: "static", shots: [], steps: [],
     },
   ],
 });

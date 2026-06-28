@@ -32,6 +32,7 @@ export function buildJsonPayload(summary: Summary): object {
       checklist: r.checklist,
       mode: r.mode,
       shots: r.shots.map((s) => ({ name: s.name, path: abs(s.path) })),
+      steps: r.steps,
     })),
   };
 }

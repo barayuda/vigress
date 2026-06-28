@@ -12,7 +12,7 @@ const summary: Summary = {
     mismatchPixels: 10, mismatchPercent: 1.5,
     target: "contact.target.png", baseline: "contact.baseline.png", diff: "contact.diff.png", video: "video/contact.webm",
     regions: [], checklist: [],
-    mode: "static", shots: [],
+    mode: "static", shots: [], steps: [],
   }],
 };
 
@@ -38,7 +38,7 @@ describe("buildJsonPayload regions + checklist", () => {
         target: "contact.target.png", baseline: "contact.baseline.png", diff: "contact.diff.png",
         regions: [{ name: "filter-bar", mismatchPixels: 5, mismatchPercent: 3.2, verdict: "fail", reason: "content", diff: "contact.filter-bar.diff.png" }],
         checklist: [{ aspect: "filter bar width", region: "filter-bar", verdict: "fail" }],
-        mode: "static", shots: [],
+        mode: "static", shots: [], steps: [],
       }],
     };
     const p = buildJsonPayload(s) as any;
@@ -58,11 +58,33 @@ describe("buildJsonPayload mode + shots", () => {
         mismatchPixels: 0, mismatchPercent: 0,
         target: "c.target.png", baseline: "c.baseline.png", diff: "c.diff.png",
         regions: [], checklist: [],
-        mode: "steps", shots: [{ name: "date-open", path: "c.date-open.png" }],
+        mode: "steps", shots: [{ name: "date-open", path: "c.date-open.png" }], steps: [],
       }],
     };
     const p = buildJsonPayload(s) as any;
     expect(p.runs[0].mode).toBe("steps");
     expect(p.runs[0].shots[0].path).toBe("/tmp/out/c.date-open.png");
+  });
+});
+
+describe("buildJsonPayload steps", () => {
+  it("carries per-step results", () => {
+    const s: Summary = {
+      schemaVersion: SCHEMA_VERSION, outDir: "/tmp/out", reportHtml: "report.html", summaryJson: "summary.json",
+      runs: [{
+        name: "c", baselineType: "url", viewport: { width: 1440, height: 900 },
+        mismatchPixels: 0, mismatchPercent: 0,
+        target: "c.target.png", baseline: "c.baseline.png", diff: "c.diff.png",
+        regions: [], checklist: [], mode: "steps", shots: [],
+        steps: [
+          { index: 1, action: "click", selector: "[data-testid=period-input]", check: true, status: "ok" },
+          { index: 2, action: "click", selector: "[data-testid=nope]", check: true, status: "failed", error: "not found" },
+        ],
+      }],
+    };
+    const p = buildJsonPayload(s) as any;
+    expect(p.runs[0].steps[0].status).toBe("ok");
+    expect(p.runs[0].steps[1].status).toBe("failed");
+    expect(p.runs[0].steps[1].check).toBe(true);
   });
 });
