@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { BrowserContext } from "playwright";
-import { buildRunConfig, buildScaffoldConfig, parseViewport, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem } from "./config";
+import { buildRunConfig, buildScaffoldConfig, scaffoldPlaceholders, parseViewport, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem } from "./config";
 import { runSteps, autoExplore, stepSummary } from "./steps";
 import { resolveBoxes, type BoxItem } from "./regions";
 import { diffWithRegions, type RegionInput } from "./diff";
@@ -80,14 +80,20 @@ async function main(): Promise<number> {
       return 2;
     }
     const file = resolve(`${page}.fullcheck.json`);
+    const next = `bun run src/cli.ts --config ${page}.fullcheck.json --state auth.state.json --json`;
     if (existsSync(file)) {
-      process.stderr.write(`vigress: ${file} already exists — refusing to overwrite\n`);
+      if (values.json === true) process.stdout.write(JSON.stringify({ file, page, created: false, error: "exists" }) + "\n");
+      else process.stderr.write(`vigress: ${file} already exists — refusing to overwrite\n`);
       return 1;
     }
     const viewport = typeof values.viewport === "string" ? parseViewport(values.viewport) : undefined;
     const scaffold = buildScaffoldConfig({ page, target, against, viewport });
     writeFileSync(file, JSON.stringify(scaffold, null, 2) + "\n");
-    process.stdout.write(`wrote ${file}\nEdit the REPLACE-* regions/mask/checklist/steps, then run:\n  bun run src/cli.ts --config ${page}.fullcheck.json --state auth.state.json --json\n`);
+    if (values.json === true) {
+      process.stdout.write(JSON.stringify({ file, page, created: true, placeholders: scaffoldPlaceholders(scaffold), next }) + "\n");
+    } else {
+      process.stdout.write(`wrote ${file}\nEdit the REPLACE-* regions/mask/checklist/steps, then run:\n  ${next}\n`);
+    }
     return 0;
   }
 

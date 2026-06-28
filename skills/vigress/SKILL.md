@@ -179,6 +179,11 @@ prefixed `REPLACE-`. It never inspects the page or guesses selectors — you edi
 the `REPLACE-*` entries with real clip coords + `data-testid`s. It refuses to
 overwrite an existing file. Skip it and copy an existing config if that is faster.
 
+Pass `--json` and it emits `{file, page, created, placeholders:[...], next}` (and
+`{file, page, created:false, error:"exists"}` + exit 1 if the file exists) — so an
+agent gets the path, the exact `REPLACE-*` tokens to resolve, and the run command
+without parsing prose.
+
 Name the config `<page>.fullcheck.json`. It combines:
 - `regions` + `mask` → the visual parity scorecard (see "Regions, masks & checklists")
 - `checklist` → ties each region to a named aspect

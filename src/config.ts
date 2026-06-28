@@ -228,6 +228,22 @@ export function buildScaffoldConfig(o: ScaffoldOpts): Array<Record<string, unkno
   ];
 }
 
+// Walks a scaffold and returns the unique REPLACE-* tokens an agent must fill in.
+export function scaffoldPlaceholders(scaffold: unknown): string[] {
+  const found = new Set<string>();
+  const walk = (v: unknown): void => {
+    if (typeof v === "string") {
+      for (const m of v.matchAll(/REPLACE-[\w-]+/g)) found.add(m[0]);
+    } else if (Array.isArray(v)) {
+      v.forEach(walk);
+    } else if (v && typeof v === "object") {
+      Object.values(v).forEach(walk);
+    }
+  };
+  walk(scaffold);
+  return [...found];
+}
+
 export function buildRunConfig(
   values: Record<string, unknown>,
   env: NodeJS.ProcessEnv,

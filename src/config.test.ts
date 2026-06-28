@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { parseViewport, detectBaselineType, parseClip, buildRunConfig } from "./config";
-import { selectorForSide, parseRegionFlag, parseMaskFlag, runStamp, buildScaffoldConfig, type Step } from "./config";
+import { selectorForSide, parseRegionFlag, parseMaskFlag, runStamp, buildScaffoldConfig, scaffoldPlaceholders, type Step } from "./config";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -210,5 +210,19 @@ describe("buildScaffoldConfig", () => {
     const { runs } = buildRunConfig({ config: file }, {} as NodeJS.ProcessEnv);
     expect(runs[0].regions?.every((r) => !!r.name)).toBe(true);
     expect(() => (runs[0].steps ?? []).forEach((s) => validateStep(s as Step))).not.toThrow();
+  });
+});
+
+describe("scaffoldPlaceholders", () => {
+  it("collects unique REPLACE-* tokens from a scaffold", () => {
+    const tokens = scaffoldPlaceholders(buildScaffoldConfig({ page: "p", target: "http://x/a", against: "http://x/b" }));
+    expect(tokens).toContain("REPLACE-top");
+    expect(tokens).toContain("REPLACE-content");
+    expect(tokens).toContain("REPLACE-download-btn");
+    expect(new Set(tokens).size).toBe(tokens.length); // unique
+  });
+
+  it("returns empty when nothing matches", () => {
+    expect(scaffoldPlaceholders([{ name: "done", steps: [{ action: "click", selector: "#x" }] }])).toEqual([]);
   });
 });
