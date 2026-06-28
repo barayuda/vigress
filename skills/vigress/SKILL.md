@@ -169,6 +169,16 @@ single report — **UI parity** (regions scorecard + masks vs the baseline),
 `data-testid`), and a dwell-paced **UX walkthrough** video. Use it instead of a
 plain visual diff whenever the page has interactive controls worth proving.
 
+**Scaffold a starter config** with `init-config` instead of hand-writing the JSON:
+```bash
+bun run src/cli.ts init-config <page> --target <url> --against <url|img.png|figma:KEY/NODE> [--viewport WxH]
+```
+It writes `<page>.fullcheck.json` pre-filled with the URLs, viewport (default
+1440×1000), and placeholder `regions`/`mask`/`checklist`/`steps` whose names are
+prefixed `REPLACE-`. It never inspects the page or guesses selectors — you edit
+the `REPLACE-*` entries with real clip coords + `data-testid`s. It refuses to
+overwrite an existing file. Skip it and copy an existing config if that is faster.
+
 Name the config `<page>.fullcheck.json`. It combines:
 - `regions` + `mask` → the visual parity scorecard (see "Regions, masks & checklists")
 - `checklist` → ties each region to a named aspect

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { parseViewport, detectBaselineType, parseClip, buildRunConfig } from "./config";
-import { selectorForSide, parseRegionFlag, parseMaskFlag, runStamp } from "./config";
+import { selectorForSide, parseRegionFlag, parseMaskFlag, runStamp, buildScaffoldConfig, type Step } from "./config";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -186,5 +186,29 @@ describe("buildRunConfig batch steps", () => {
     const bad = join(dir, "bad.json");
     writeFileSync(bad, JSON.stringify([{ target: "http://x/a", against: "http://x/b", steps: [{ action: "click" }] }]));
     expect(() => buildRunConfig({ config: bad }, {} as NodeJS.ProcessEnv)).toThrow(/click.*selector/);
+  });
+});
+
+describe("buildScaffoldConfig", () => {
+  it("stamps page name, urls, and default viewport", () => {
+    const [entry] = buildScaffoldConfig({ page: "agents", target: "http://x/a", against: "https://s/a" });
+    expect(entry.name).toBe("agents-fullcheck");
+    expect(entry.target).toBe("http://x/a");
+    expect(entry.against).toBe("https://s/a");
+    expect(entry.viewport).toEqual({ width: 1440, height: 1000 });
+  });
+
+  it("honors an explicit viewport", () => {
+    const [entry] = buildScaffoldConfig({ page: "p", target: "http://x/a", against: "http://x/b", viewport: { width: 800, height: 600 } });
+    expect(entry.viewport).toEqual({ width: 800, height: 600 });
+  });
+
+  it("produces a config that survives buildRunConfig + validateStep", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vscaf-"));
+    const file = join(dir, "p.fullcheck.json");
+    writeFileSync(file, JSON.stringify(buildScaffoldConfig({ page: "p", target: "http://x/a", against: "http://x/b" })));
+    const { runs } = buildRunConfig({ config: file }, {} as NodeJS.ProcessEnv);
+    expect(runs[0].regions?.every((r) => !!r.name)).toBe(true);
+    expect(() => (runs[0].steps ?? []).forEach((s) => validateStep(s as Step))).not.toThrow();
   });
 });

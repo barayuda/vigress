@@ -1,8 +1,8 @@
 import { parseArgs } from "node:util";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { BrowserContext } from "playwright";
-import { buildRunConfig, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem } from "./config";
+import { buildRunConfig, buildScaffoldConfig, parseViewport, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem } from "./config";
 import { runSteps, autoExplore, stepSummary } from "./steps";
 import { resolveBoxes, type BoxItem } from "./regions";
 import { diffWithRegions, type RegionInput } from "./diff";
@@ -67,6 +67,27 @@ async function main(): Promise<number> {
       return 2;
     }
     await runLogin(url, state);
+    return 0;
+  }
+
+  // init-config subcommand: scaffold a <page>.fullcheck.json starter (no browser).
+  if (positionals[0] === "init-config") {
+    const page = positionals[1];
+    const target = typeof values.target === "string" ? values.target : undefined;
+    const against = typeof values.against === "string" ? values.against : undefined;
+    if (!page || !target || !against) {
+      process.stderr.write("Usage: vigress init-config <page> --target <url> --against <url|image.png|figma:KEY/NODE> [--viewport WxH]\n");
+      return 2;
+    }
+    const file = resolve(`${page}.fullcheck.json`);
+    if (existsSync(file)) {
+      process.stderr.write(`vigress: ${file} already exists — refusing to overwrite\n`);
+      return 1;
+    }
+    const viewport = typeof values.viewport === "string" ? parseViewport(values.viewport) : undefined;
+    const scaffold = buildScaffoldConfig({ page, target, against, viewport });
+    writeFileSync(file, JSON.stringify(scaffold, null, 2) + "\n");
+    process.stdout.write(`wrote ${file}\nEdit the REPLACE-* regions/mask/checklist/steps, then run:\n  bun run src/cli.ts --config ${page}.fullcheck.json --state auth.state.json --json\n`);
     return 0;
   }
 

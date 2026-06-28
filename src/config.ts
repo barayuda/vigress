@@ -191,6 +191,43 @@ export function runStamp(d: Date = new Date()): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
 }
 
+export interface ScaffoldOpts {
+  page: string;
+  target: string;
+  against: string;
+  viewport?: Viewport;
+}
+
+// Builds a starter full-check config (one entry, array-wrapped) with placeholder
+// regions/mask/checklist/steps the user replaces. Valid against buildRunConfig:
+// every region has a name, every step satisfies validateStep.
+export function buildScaffoldConfig(o: ScaffoldOpts): Array<Record<string, unknown>> {
+  const viewport = o.viewport ?? { width: 1440, height: 1000 };
+  return [
+    {
+      name: `${o.page}-fullcheck`,
+      target: o.target,
+      against: o.against,
+      viewport,
+      regions: [
+        { name: "REPLACE-top", clip: { x: 0, y: 0, width: viewport.width, height: 200 }, maxMismatch: 4 },
+        { name: "REPLACE-body", selector: "[data-testid=REPLACE-content]", maxMismatch: 5 },
+      ],
+      mask: [{ selector: "[data-testid=REPLACE-dynamic-element]" }],
+      checklist: [
+        { aspect: "REPLACE top region parity", region: "REPLACE-top", verdict: "unresolved" },
+        { aspect: "REPLACE body region parity", region: "REPLACE-body", verdict: "unresolved" },
+      ],
+      steps: [
+        { action: "click", selector: "[data-testid=REPLACE-filter-input]" },
+        { action: "screenshot", name: "01-REPLACE-state" },
+        { action: "click", selector: "[data-testid=REPLACE-download-btn]" },
+        { action: "screenshot", name: "02-after-download" },
+      ],
+    },
+  ];
+}
+
 export function buildRunConfig(
   values: Record<string, unknown>,
   env: NodeJS.ProcessEnv,
