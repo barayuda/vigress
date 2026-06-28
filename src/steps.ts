@@ -48,10 +48,22 @@ function slug(s: string): string {
 // --- browser (integration; not unit-tested) ---
 
 // Run an explicit interaction flow on the target page. Each action is best-effort:
-// a failure is logged and skipped, never thrown. Returns saved screenshot shots.
-export async function runSteps(page: Page, steps: Step[], outDir: string, name: string): Promise<Shot[]> {
+// a failure is recorded (not thrown) and the flow continues. Returns the saved
+// screenshots and a per-step pass/fail result. Dwells after each step so the
+// recorded video holds each state (VIGRESS_DWELL ms, default 1000).
+export async function runSteps(
+  page: Page,
+  steps: Step[],
+  outDir: string,
+  name: string,
+): Promise<{ shots: Shot[]; results: StepResult[] }> {
   const shots: Shot[] = [];
+  const results: StepResult[] = [];
+  const dwell = Number(process.env.VIGRESS_DWELL) || 1000;
+  let index = 0;
   for (const st of steps) {
+    index++;
+    const check = isCheckStep(st);
     try {
       const loc = st.selector ? page.locator(st.selector).first() : null;
       switch (st.action) {
@@ -86,12 +98,15 @@ export async function runSteps(page: Page, steps: Step[], outDir: string, name: 
           break;
         }
       }
-      await page.waitForTimeout(300);
+      results.push({ index, action: st.action, selector: st.selector, check, status: "ok" });
     } catch (e) {
-      process.stderr.write(`vigress: step '${st.action}' skipped: ${e instanceof Error ? e.message : String(e)}\n`);
+      const msg = e instanceof Error ? e.message : String(e);
+      results.push({ index, action: st.action, selector: st.selector, check, status: "failed", error: msg });
+      process.stderr.write(`vigress: step ${index} '${st.action}' failed: ${msg}\n`);
     }
+    await page.waitForTimeout(dwell);
   }
-  return shots;
+  return { shots, results };
 }
 
 // Default when no explicit steps: open/close up to 6 safe controls, recorded.

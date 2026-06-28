@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { BrowserContext } from "playwright";
 import { buildRunConfig, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem } from "./config";
-import { runSteps, autoExplore } from "./steps";
+import { runSteps, autoExplore, stepSummary } from "./steps";
 import { resolveBoxes, type BoxItem } from "./regions";
 import { diffWithRegions, type RegionInput } from "./diff";
 import { launchBrowser } from "./browser";
@@ -12,7 +12,7 @@ import { resolveBaseline } from "./sources";
 import { storageStateOption, runLogin } from "./auth";
 import { writeReport } from "./report";
 import { buildJsonPayload } from "./json";
-import { SCHEMA_VERSION, type RunResult, type RegionScore, type RunMode, type Shot, type Summary } from "./types";
+import { SCHEMA_VERSION, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type Summary } from "./types";
 
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
@@ -39,6 +39,7 @@ const { values, positionals } = parseArgs({
     mask: { type: "string", multiple: true },
     "no-steps": { type: "boolean" },
     step: { type: "string", multiple: true },
+    "require-steps": { type: "boolean" },
   },
 });
 
@@ -164,8 +165,14 @@ async function main(): Promise<number> {
       // Interaction (target only), after the clean screenshot + diff so parity is unaffected.
       const mode: RunMode = values["no-steps"] === true ? "static" : (spec.steps?.length ? "steps" : "explore");
       let shots: Shot[] = [];
-      if (mode === "steps") shots = await runSteps(page, spec.steps!, outDir, spec.name);
-      else if (mode === "explore") await autoExplore(page);
+      let stepResults: StepResult[] = [];
+      if (mode === "steps") {
+        const r = await runSteps(page, spec.steps!, outDir, spec.name);
+        shots = r.shots;
+        stepResults = r.results;
+      } else if (mode === "explore") {
+        await autoExplore(page);
+      }
 
       const videoHandle = spec.video ? page.video() : undefined;
       await page.close();
@@ -189,9 +196,11 @@ async function main(): Promise<number> {
         checklist,
         mode,
         shots,
-        steps: [],
+        steps: stepResults,
       });
-      log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${full.mismatchPercent}% · ${mode} · ${regions.length} region(s) -> ${diffRel}`);
+      const ss = stepSummary(stepResults);
+      const stepsNote = mode === "steps" ? ` · steps ${ss.ok}/${ss.total} ok` : "";
+      log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${full.mismatchPercent}% · ${mode}${stepsNote} · ${regions.length} region(s) -> ${diffRel}`);
     }
   } finally {
     await browser.close();
@@ -215,6 +224,9 @@ async function main(): Promise<number> {
   if (opts.maxMismatch !== undefined) {
     const worst = results.reduce((m, r) => Math.max(m, r.mismatchPercent), 0);
     if (worst > opts.maxMismatch) return 1;
+  }
+  if (values["require-steps"] && results.some((r) => r.steps.some((s) => s.check && s.status === "failed"))) {
+    return 1;
   }
   return 0;
 }
