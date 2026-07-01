@@ -28,6 +28,7 @@ export function buildJsonPayload(summary: Summary): object {
         targetBox: rg.targetBox,
         baselineBox: rg.baselineBox,
         diff: rg.diff ? abs(rg.diff) : undefined,
+        styleDiff: rg.styleDiff,
       })),
       checklist: r.checklist,
       mode: r.mode,

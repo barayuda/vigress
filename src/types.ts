@@ -1,6 +1,7 @@
 import type { BaselineType, Viewport, ChecklistItem, StepAction } from "./config";
+import type { StyleDiffEntry } from "./style";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export interface BoxDims {
   width: number;
@@ -19,6 +20,7 @@ export interface RegionScore {
   targetBox?: BoxDims;
   baselineBox?: BoxDims;
   diff?: string; // path relative to outDir; undefined when unresolved
+  styleDiff?: StyleDiffEntry[]; // present only when the region's `style` opt-in was set
 }
 
 export type RunMode = "static" | "explore" | "steps";

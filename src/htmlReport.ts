@@ -6,6 +6,24 @@ function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 }
 
+function styleDiffTable(r: RegionScore): string {
+  if (!r.styleDiff?.length) return "";
+  const mismatches = r.styleDiff.filter((s) => !s.match).length;
+  const rows = r.styleDiff.map((s) => `
+      <tr class="v-${s.match ? "pass" : "fail"}">
+        <td>${esc(s.property)}</td>
+        <td>${esc(s.target ?? "—")}</td>
+        <td>${esc(s.baseline ?? "—")}</td>
+        <td>${s.match ? "✓" : "✗"}</td>
+      </tr>`).join("");
+  return `
+    <div class="style-label">${esc(r.name)} style: ${mismatches}/${r.styleDiff.length} mismatch(es)</div>
+    <table class="regions style">
+      <thead><tr><th>property</th><th>target</th><th>baseline</th><th>match</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 function regionRows(regions: RegionScore[]): string {
   if (!regions.length) return "";
   const rows = regions.map((r) => `
@@ -19,7 +37,8 @@ function regionRows(regions: RegionScore[]): string {
     <table class="regions">
       <thead><tr><th>region</th><th>score</th><th>verdict</th><th>diff</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table>
+    ${regions.map(styleDiffTable).join("")}`;
 }
 
 function checklistList(items: ChecklistItem[]): string {
@@ -109,6 +128,8 @@ export function buildReportHtml(summary: Summary): string {
   .shots-label{color:#656f80;font-size:12px;margin-bottom:4px}
   .fn-label{color:#656f80;font-size:12px;margin-top:12px}
   .fn-err{color:#b42318;font-size:12px}
+  .style-label{color:#656f80;font-size:12px;margin-top:12px}
+  table.regions.style td{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 </style>
 </head>
 <body>

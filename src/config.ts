@@ -30,6 +30,10 @@ export interface RegionSpec {
   selector?: string; // both sides
   clip?: Box; // fallback
   maxMismatch?: number;
+  // Opt in to a computed-style diff (color/size/spacing) for this region:
+  // `true` probes DEFAULT_STYLE_PROPS, an array probes exactly those CSS
+  // properties (camelCase, e.g. "backgroundColor"), omitted/false skips it.
+  style?: string[] | boolean;
 }
 
 export interface MaskSpec {
@@ -121,6 +125,15 @@ function parseKv(s: string): Record<string, string> {
   return out;
 }
 
+// "true"/"1"/"" -> probe DEFAULT_STYLE_PROPS; "false"/"0" -> disabled;
+// a comma list -> probe exactly those properties; absent -> undefined (disabled).
+function parseStyleKv(v?: string): string[] | boolean | undefined {
+  if (v === undefined) return undefined;
+  if (v === "true" || v === "1" || v === "") return true;
+  if (v === "false" || v === "0") return false;
+  return v.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 export function parseRegionFlag(s: string): RegionSpec {
   const kv = parseKv(s);
   return {
@@ -130,6 +143,7 @@ export function parseRegionFlag(s: string): RegionSpec {
     selector: kv.selector,
     clip: parseClip(kv.clip),
     maxMismatch: kv.max !== undefined ? Number(kv.max) : undefined,
+    style: parseStyleKv(kv.style),
   };
 }
 
@@ -211,7 +225,7 @@ export function buildScaffoldConfig(o: ScaffoldOpts): Array<Record<string, unkno
       viewport,
       regions: [
         { name: "REPLACE-top", clip: { x: 0, y: 0, width: viewport.width, height: 200 }, maxMismatch: 4 },
-        { name: "REPLACE-body", selector: "[data-testid=REPLACE-content]", maxMismatch: 5 },
+        { name: "REPLACE-body", selector: "[data-testid=REPLACE-content]", maxMismatch: 5, style: true },
       ],
       mask: [{ selector: "[data-testid=REPLACE-dynamic-element]" }],
       checklist: [

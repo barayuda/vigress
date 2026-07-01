@@ -38,10 +38,10 @@ Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
 `[{ "name","target","against","clip?","viewport?" }, …]`.
 
 ## For AI agents
-- Pass `--json`: stdout is a single object `{ schemaVersion: 4, outDir, reportHtml,
+- Pass `--json`: stdout is a single object `{ schemaVersion: 5, outDir, reportHtml,
   runs:[{ name, mismatchPercent, target, baseline, diff, video, mode, shots:[],
   steps:[{index,action,selector?,check,status,error?}],
-  regions:[{name,mismatchPercent,verdict,reason,diff}],
+  regions:[{name,mismatchPercent,verdict,reason,diff,styleDiff?:[{property,target,baseline,match}]}],
   checklist:[{aspect,region,verdict,workaround}] }] }` with absolute
   paths — Read the `diff` PNG; open `reportHtml` for the human view.
 - `--quiet` to suppress chatter; `--max-mismatch <pct>` to make it exit non-zero
@@ -50,6 +50,9 @@ Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
 - `--require-steps` exits non-zero if any functionality check step failed (any
   `steps[]` entry with `check: true` has `status: "failed"`). Combines with
   `--max-mismatch`.
+- `--require-style` exits non-zero if any region's `styleDiff` has a `match: false`
+  entry. See "Style diffing" below — pixel mismatch alone can pass while a real
+  color/spacing regression hides under the threshold.
 
 ## Best practices
 - Match the viewport on both sides (`--viewport WxH`, default 1440×900).
@@ -112,6 +115,51 @@ Precedence per side: `target`/`baseline` → `selector` → `clip`.
 ```
 Fields are delimited by `;`. For `clip`, keep commas in the value: `clip=277,175,280,205`.
 
+## Style diffing (color, size, spacing)
+
+Pixel diff answers "how many pixels differ" — it does not say **why**. A region
+can score `pass` (low mismatch %) while a real color or spacing regression is
+still there (e.g. red text vs green text on a tiny element barely moves the
+pixel count). Add `style` to a region to get an exact property-by-property
+answer instead of eyeballing the diff image.
+
+**Config shape:**
+```json
+{
+  "name": "header",
+  "selector": "[data-testid=page-title]",
+  "maxMismatch": 4,
+  "style": true
+}
+```
+- `"style": true` probes a sensible default set: `color`, `backgroundColor`,
+  `fontSize`, `fontWeight`, `fontFamily`, `padding`, `margin`, `border`,
+  `borderRadius`, `boxShadow`.
+- `"style": ["color", "backgroundColor"]` probes exactly those CSS properties
+  (camelCase, as read from `getComputedStyle`).
+- Omitted or `false` disables it (default) — no extra browser work for regions
+  that don't need it.
+
+**CLI flag:** append `;style=color,backgroundColor` (or `;style=true`) to a
+`--region` flag.
+
+**Result (`regions[].styleDiff`):** an array of
+`{ property, target, baseline, match }` — `target`/`baseline` are the raw
+computed-style strings from each side, `match` is `false` when they genuinely
+differ (values are whitespace-normalized first, so `rgb(0,0,0)` and
+`rgb(0, 0, 0)` count as equal). `report.html` renders a small monospace table
+under the region row: `<region> style: N/M mismatch(es)`, with mismatched rows
+in red.
+
+**Scope:** style is probed only on regions with a resolvable selector — never
+on masks, and never against an `image`/`figma` baseline (there's no live DOM to
+read `getComputedStyle` from; those baselines report no `styleDiff` for the
+region). Use it against a **live staging URL** baseline.
+
+**Gating:** `--require-style` exits non-zero if any probed property mismatches.
+Combine with `--max-mismatch`/`--require-steps` to gate visual drift,
+interaction health, and style parity in one run.
+
 ## Interaction steps
 
 By default every run **auto-explores safe controls** (comboboxes, popovers, filter
@@ -134,7 +182,7 @@ the JSON output and the HTML report.
 
 ### Per-step pass/fail results
 
-Each step reports a result. `summary.json` and `--json` are **schemaVersion 4**
+Each step reports a result. `summary.json` and `--json` are **schemaVersion 5**
 and include `mode`, `shots[]`, and `steps[]` on each run entry. The `steps[]`
 shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
 
@@ -214,9 +262,9 @@ See PLAYBOOK.md for archetype checklists + the known-noise/workarounds catalog.
 1. **Determine target + baseline URLs and the archetype.** Inspect the page or ask: is it a report/dashboard, table/list, form, or nav-sidebar?
 2. **Read the matching PLAYBOOK.md archetype section.** Note the suggested region selectors and verify-methods for each aspect you need to check.
 3. **Inspect the live DOM** to resolve per-side selectors (target app may use `data-testid`; baseline may use BEM classes). Identify dynamic elements (timestamps, live counts, date badges) to add to `mask`.
-4. **Write a vigress config** with `regions` (one per checklist aspect), `mask` (one per dynamic element), and a `checklist` array tying each aspect to its region name. To make it a **full check**, also add `steps` covering every filter and download (see "Full check") and name the file `<page>.fullcheck.json`.
+4. **Write a vigress config** with `regions` (one per checklist aspect), `mask` (one per dynamic element), and a `checklist` array tying each aspect to its region name. To make it a **full check**, also add `steps` covering every filter and download (see "Full check") and name the file `<page>.fullcheck.json`. Add `"style": true` on any region where color/spacing is in question (e.g. after a design-system migration) — see "Style diffing".
 5. **Run:**
    ```bash
    bun run src/cli.ts --config <file> --state auth.state.json --json
    ```
-6. **Read the JSON output.** Map each `regions[]` entry's `verdict`/`reason` to the corresponding `checklist[]` item. Report failing aspects with their recommended workaround from PLAYBOOK.md, fix the underlying issue, and re-run.
+6. **Read the JSON output.** Map each `regions[]` entry's `verdict`/`reason` to the corresponding `checklist[]` item. A region can `pass` on pixels but still have `styleDiff` mismatches — check both. Report failing aspects with their recommended workaround from PLAYBOOK.md, fix the underlying issue, and re-run.

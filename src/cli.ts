@@ -12,6 +12,7 @@ import { resolveBaseline } from "./sources";
 import { storageStateOption, runLogin } from "./auth";
 import { writeReport } from "./report";
 import { buildJsonPayload } from "./json";
+import { resolveStyles, styleProps, diffStyleValues, type StyleItem } from "./style";
 import { SCHEMA_VERSION, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type Summary } from "./types";
 
 const { values, positionals } = parseArgs({
@@ -40,6 +41,7 @@ const { values, positionals } = parseArgs({
     "no-steps": { type: "boolean" },
     step: { type: "string", multiple: true },
     "require-steps": { type: "boolean" },
+    "require-style": { type: "boolean" },
   },
 });
 
@@ -158,10 +160,33 @@ async function main(): Promise<number> {
         ...specMasks.map((m, i) => ({ key: `m:${i}`, selector: selectorForSide(m, "baseline"), clip: m.clip })),
       ];
 
+      // Style probing only applies to regions that opt in via `style` (masks never do).
+      const styledRegions = specRegions
+        .map((r) => ({ region: r, props: styleProps(r.style) }))
+        .filter((x): x is { region: typeof x.region; props: string[] } => x.props !== undefined);
+      const targetStyleItems: StyleItem[] = styledRegions.map(({ region, props }) => ({
+        key: `r:${region.name}`,
+        selector: selectorForSide(region, "target"),
+        props,
+      }));
+      const baselineStyleItems: StyleItem[] = styledRegions.map(({ region, props }) => ({
+        key: `r:${region.name}`,
+        selector: selectorForSide(region, "baseline"),
+        props,
+      }));
+
       const page = await ctx.newPage();
       await capturePage(page, spec.target, join(outDir, targetRel), spec.clip);
       const targetBoxes = await resolveBoxes(page, targetItems);
-      const { boxes: baselineBoxes } = await resolveBaseline(spec, ctx, join(outDir, baselineRel), process.env, baselineItems);
+      const targetStyles = await resolveStyles(page, targetStyleItems);
+      const { boxes: baselineBoxes, styles: baselineStyles } = await resolveBaseline(
+        spec,
+        ctx,
+        join(outDir, baselineRel),
+        process.env,
+        baselineItems,
+        baselineStyleItems,
+      );
 
       // image/figma baselines resolve no DOM boxes → fall back to the region's clip.
       const regionInputs: RegionInput[] = specRegions.map((r) => ({
@@ -170,6 +195,12 @@ async function main(): Promise<number> {
         baselineBox: baselineBoxes[`r:${r.name}`] ?? r.clip ?? null,
         maxMismatch: r.maxMismatch,
       }));
+      const styleDiffByRegion = new Map(
+        styledRegions.map(({ region, props }) => [
+          region.name,
+          diffStyleValues(targetStyles[`r:${region.name}`] ?? null, baselineStyles[`r:${region.name}`] ?? null, props),
+        ]),
+      );
       const targetMaskBoxes = specMasks
         .map((m, i) => targetBoxes[`m:${i}`] ?? m.clip ?? null)
         .filter((b): b is NonNullable<typeof b> => b !== null);
@@ -177,7 +208,7 @@ async function main(): Promise<number> {
         .map((m, i) => baselineBoxes[`m:${i}`] ?? m.clip ?? null)
         .filter((b): b is NonNullable<typeof b> => b !== null);
 
-      const { full, regions } = diffWithRegions({
+      const { full, regions: diffedRegions } = diffWithRegions({
         targetPath: join(outDir, targetRel),
         baselinePath: join(outDir, baselineRel),
         diffPath: join(outDir, diffRel),
@@ -187,6 +218,10 @@ async function main(): Promise<number> {
         baselineMaskBoxes,
         regions: regionInputs,
         threshold: opts.threshold,
+      });
+      const regions: RegionScore[] = diffedRegions.map((r) => {
+        const styleDiff = styleDiffByRegion.get(r.name);
+        return styleDiff ? { ...r, styleDiff } : r;
       });
 
       // Interaction (target only), after the clean screenshot + diff so parity is unaffected.
@@ -227,7 +262,9 @@ async function main(): Promise<number> {
       });
       const ss = stepSummary(stepResults);
       const stepsNote = mode === "steps" ? ` · steps ${ss.ok}/${ss.total} ok` : "";
-      log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${full.mismatchPercent}% · ${mode}${stepsNote} · ${regions.length} region(s) -> ${diffRel}`);
+      const styleMismatches = regions.reduce((n, r) => n + (r.styleDiff?.filter((s) => !s.match).length ?? 0), 0);
+      const styleNote = styleDiffByRegion.size ? ` · style ${styleMismatches} mismatch(es)` : "";
+      log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${full.mismatchPercent}% · ${mode}${stepsNote}${styleNote} · ${regions.length} region(s) -> ${diffRel}`);
     }
   } finally {
     await browser.close();
@@ -253,6 +290,9 @@ async function main(): Promise<number> {
     if (worst > opts.maxMismatch) return 1;
   }
   if (values["require-steps"] && results.some((r) => r.steps.some((s) => s.check && s.status === "failed"))) {
+    return 1;
+  }
+  if (values["require-style"] && results.some((r) => r.regions.some((rg) => rg.styleDiff?.some((s) => !s.match)))) {
     return 1;
   }
   return 0;
