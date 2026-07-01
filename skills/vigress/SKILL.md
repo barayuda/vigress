@@ -255,13 +255,59 @@ functionality table + a UX video in one report. Keep the config in the project
 repo you are testing (e.g. `<page>.fullcheck.json`), not in this skill — the
 skill is project-agnostic; the configs are project-specific.
 
+## Discover (generate a fullcheck config from the live DOM)
+
+`init-config` scaffolds a template with `REPLACE-*` placeholders — it never
+inspects the page. `discover` does the opposite: it crawls the live
+**`--target`** DOM and writes a run-ready `<page>.fullcheck.json` with real
+selectors, regions, and steps, no placeholders.
+
+```bash
+bun run src/cli.ts discover <page> --target <url> --against <url> \
+  [--viewport WxH] [--state auth.state.json] [--max-steps 20] [--json]
+```
+
+**How it works (read-only — never clicks or types during discovery):**
+1. Navigates `--target` and waits for it to settle (no `--against` navigation —
+   the baseline is written into the config as-is, for the human to review).
+2. Runs one in-page DOM scan for functionally-relevant elements (buttons,
+   links, inputs, selects, `[data-testid]`, `[role=button]`,
+   `[role=combobox]`, `[aria-haspopup]`) — visible, enabled, capped at 200 raw
+   matches.
+3. Drops destructive-sounding controls (reuses the same `delete`/`log out`/
+   `hapus` filter as auto-explore) and de-duplicates by resolved selector.
+4. Picks the most stable selector per control: `data-testid` > `id` >
+   `aria-label` > a nth-of-type DOM path fallback.
+5. Clusters the surviving controls' bounding boxes into horizontal bands
+   (`region-1`, `region-2`, …) as a starting parity scorecard.
+6. Emits up to `--max-steps` (default 20) `click` + `screenshot` step pairs in
+   layout order, closing dropdown-like controls (`role=combobox`, `<select>`,
+   `aria-haspopup`) with `Escape` before the next step.
+
+**Output:** the same `<page>.fullcheck.json` shape as `init-config`/`--config`
+— open it, review the selectors/region boundaries/step order, adjust
+`maxMismatch` per region, then run it like any other full check:
+```bash
+bun run src/cli.ts --config <page>.fullcheck.json --state auth.state.json --json
+```
+`--json` on `discover` itself emits `{file, page, created, discovered:
+{candidates, safe, steps, regions}, next}` (and the same
+`{created:false, error:"exists"}` + exit 1 if the file already exists).
+
+**This is a heuristic starting point, not a verdict.** The region bands are
+coarse (layout proximity only, no semantic grouping), step order follows DOM
+order (not necessarily the order a human would test filters in), and the
+nth-of-type fallback selector is brittle if the DOM shifts. Always review the
+generated config before trusting a run's `--require-steps`/`--require-style`
+gate on it.
+
 ## Regression workflow
 
 See PLAYBOOK.md for archetype checklists + the known-noise/workarounds catalog.
 
 1. **Determine target + baseline URLs and the archetype.** Inspect the page or ask: is it a report/dashboard, table/list, form, or nav-sidebar?
 2. **Read the matching PLAYBOOK.md archetype section.** Note the suggested region selectors and verify-methods for each aspect you need to check.
-3. **Inspect the live DOM** to resolve per-side selectors (target app may use `data-testid`; baseline may use BEM classes). Identify dynamic elements (timestamps, live counts, date badges) to add to `mask`.
+3. **Inspect the live DOM** to resolve per-side selectors (target app may use `data-testid`; baseline may use BEM classes). Identify dynamic elements (timestamps, live counts, date badges) to add to `mask`. Or run `vigress discover <page> --target <url> --against <url>` to generate a starting config from a live DOM crawl instead of inspecting by hand — review its output before relying on it (see "Discover").
 4. **Write a vigress config** with `regions` (one per checklist aspect), `mask` (one per dynamic element), and a `checklist` array tying each aspect to its region name. To make it a **full check**, also add `steps` covering every filter and download (see "Full check") and name the file `<page>.fullcheck.json`. Add `"style": true` on any region where color/spacing is in question (e.g. after a design-system migration) — see "Style diffing".
 5. **Run:**
    ```bash
