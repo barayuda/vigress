@@ -93,7 +93,7 @@ export async function runSteps(
           break;
         case "screenshot": {
           const rel = `${slug(name)}.${slug(st.name ?? "shot")}.png`;
-          await page.screenshot({ path: join(outDir, rel) });
+          await page.screenshot({ path: join(outDir, rel), animations: "disabled", caret: "hide" });
           shots.push({ name: st.name ?? "shot", path: rel });
           break;
         }

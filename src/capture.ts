@@ -14,6 +14,10 @@ export async function capturePage(
   await page.waitForLoadState("networkidle", { timeout: settle }).catch(() => {});
   await page.evaluate(() => document.fonts?.ready).catch(() => {});
   await page.waitForTimeout(1500); // settle charts/async content
-  await page.screenshot({ path: outPath, clip });
+  // animations: "disabled" freezes CSS animations/transitions to their end state —
+  // without it a perpetual loader (e.g. spinner dots) never produces two identical
+  // frames and page.screenshot() times out waiting for stability. caret: "hide"
+  // keeps text-input captures deterministic.
+  await page.screenshot({ path: outPath, clip, animations: "disabled", caret: "hide" });
   return outPath;
 }
