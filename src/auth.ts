@@ -15,9 +15,18 @@ export function storageStateOption(statePath?: string): { storageState?: string 
 
 // Opens a headed browser at loginUrl; the user signs in (any SSO/OAuth/MFA),
 // presses Enter in the terminal, and the storageState is saved to statePath.
+//
+// If statePath already holds a session (e.g. from an earlier `login` against a
+// different host), that session is loaded into the new context first, so this
+// login's cookies are added alongside it rather than replacing it. A full
+// check that spans two origins (e.g. a local app + a staging baseline it
+// doesn't share cookies with) needs both sessions in the same state file —
+// without this, logging into the second host would silently drop the first.
 export async function runLogin(loginUrl: string, statePath: string): Promise<void> {
   const browser = await chromium.launch({ channel: "chrome", headless: false });
-  const ctx = await browser.newContext();
+  const ctx = existsSync(statePath)
+    ? await browser.newContext({ storageState: statePath })
+    : await browser.newContext();
   const page = await ctx.newPage();
   await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
   process.stdout.write(
