@@ -9,7 +9,7 @@ import { diffWithRegions, type RegionInput } from "./diff";
 import { launchBrowser } from "./browser";
 import { capturePage } from "./capture";
 import { resolveBaseline } from "./sources";
-import { storageStateOption, runLogin } from "./auth";
+import { storageStateOption, runLogin, checkSession, looksLikeLoginRedirect } from "./auth";
 import { writeReport } from "./report";
 import { buildJsonPayload } from "./json";
 import { resolveStyles, styleProps, diffStyleValues, type StyleItem } from "./style";
@@ -44,6 +44,7 @@ const { values, positionals } = parseArgs({
     "require-steps": { type: "boolean" },
     "require-style": { type: "boolean" },
     "max-steps": { type: "string" },
+    check: { type: "boolean" },
   },
 });
 
@@ -67,8 +68,20 @@ async function main(): Promise<number> {
     const url = typeof values.url === "string" ? values.url : undefined;
     const state = typeof values.state === "string" ? values.state : undefined;
     if (!url || !state) {
-      process.stderr.write("Usage: vigress login --url <url> --state <path>\n");
+      process.stderr.write("Usage: vigress login --url <url> --state <path> [--check]\n");
       return 2;
+    }
+    // --check: headless, non-interactive session validation; exit 0 = logged in.
+    if (values.check === true) {
+      const r = await checkSession(url, state);
+      if (values.json === true) {
+        process.stdout.write(JSON.stringify({ url, state, finalUrl: r.finalUrl, loggedIn: r.loggedIn }) + "\n");
+      } else if (r.loggedIn) {
+        process.stdout.write(`session ok — ${url} stayed on ${r.finalUrl}\n`);
+      } else {
+        process.stdout.write(`session expired — ${url} redirected to ${r.finalUrl}\nRe-run: vigress login --url ${url} --state ${state}\n`);
+      }
+      return r.loggedIn ? 0 : 1;
     }
     await runLogin(url, state);
     return 0;
@@ -233,9 +246,20 @@ async function main(): Promise<number> {
         props,
       }));
 
+      // DOM-resolved boxes are translated into this rect's coordinate space —
+      // the screenshot covers the --clip region when set, else the viewport.
+      const captureRect = spec.clip ?? { x: 0, y: 0, width: spec.viewport.width, height: spec.viewport.height };
+
       const page = await ctx.newPage();
       await capturePage(page, spec.target, join(outDir, targetRel), spec.clip);
-      const targetBoxes = await resolveBoxes(page, targetItems);
+      // With a session attached, landing on a login page means it expired —
+      // fail fast instead of silently diffing two login screens.
+      if (opts.statePath && looksLikeLoginRedirect(spec.target, page.url())) {
+        throw new Error(
+          `target redirected to a login page (${page.url()}) — the session in "${opts.statePath}" has likely expired. Re-run: vigress login --url ${spec.target} --state ${opts.statePath}`,
+        );
+      }
+      const targetBoxes = await resolveBoxes(page, targetItems, captureRect);
       const targetStyles = await resolveStyles(page, targetStyleItems);
       const { boxes: baselineBoxes, styles: baselineStyles } = await resolveBaseline(
         spec,
@@ -244,6 +268,7 @@ async function main(): Promise<number> {
         process.env,
         baselineItems,
         baselineStyleItems,
+        opts.statePath,
       );
 
       // image/figma baselines resolve no DOM boxes → fall back to the region's clip.

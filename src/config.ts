@@ -44,7 +44,7 @@ export interface MaskSpec {
 }
 
 export type StepAction =
-  | "click" | "fill" | "select" | "hover" | "press" | "waitFor" | "scroll" | "screenshot";
+  | "click" | "fill" | "select" | "hover" | "press" | "waitFor" | "scroll" | "screenshot" | "assert";
 
 export interface Step {
   action: StepAction;
@@ -54,6 +54,9 @@ export interface Step {
   name?: string; // screenshot name
   ms?: number; // waitFor delay
   by?: number; // scroll px
+  state?: "visible" | "hidden"; // assert: element state (default "visible")
+  text?: string; // assert: element text must contain this
+  urlContains?: string; // assert: page URL must contain this
 }
 
 export interface RunSpec {
@@ -161,10 +164,13 @@ export function parseStepFlag(s: string): Step {
   if (kv.name !== undefined) step.name = kv.name;
   if (kv.ms !== undefined) step.ms = Number(kv.ms);
   if (kv.by !== undefined) step.by = Number(kv.by);
+  if (kv.state !== undefined) step.state = kv.state as Step["state"];
+  if (kv.text !== undefined) step.text = kv.text;
+  if (kv.urlContains !== undefined) step.urlContains = kv.urlContains;
   return step;
 }
 
-const STEP_ACTIONS = ["click", "fill", "select", "hover", "press", "waitFor", "scroll", "screenshot"];
+const STEP_ACTIONS = ["click", "fill", "select", "hover", "press", "waitFor", "scroll", "screenshot", "assert"];
 
 export function validateStep(step: Step): void {
   if (!STEP_ACTIONS.includes(step.action)) {
@@ -194,6 +200,12 @@ export function validateStep(step: Step): void {
       break;
     case "screenshot":
       need(!!step.name, "name");
+      break;
+    case "assert":
+      need(!!step.selector || step.urlContains !== undefined, "selector or urlContains");
+      if (step.state !== undefined && step.state !== "visible" && step.state !== "hidden") {
+        throw new Error("vigress config: step 'assert' state must be 'visible' or 'hidden'");
+      }
       break;
   }
 }

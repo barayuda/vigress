@@ -156,6 +156,11 @@ describe("parseStepFlag", () => {
   it("parses a screenshot step", () => {
     expect(parseStepFlag("action=screenshot;name=date-open")).toEqual({ action: "screenshot", name: "date-open" });
   });
+  it("parses assert steps (state / text / urlContains)", () => {
+    expect(parseStepFlag("action=assert;selector=[role=dialog];state=visible")).toEqual({ action: "assert", selector: "[role=dialog]", state: "visible" });
+    expect(parseStepFlag("action=assert;selector=.toast;text=Saved")).toEqual({ action: "assert", selector: ".toast", text: "Saved" });
+    expect(parseStepFlag("action=assert;urlContains=/reports")).toEqual({ action: "assert", urlContains: "/reports" });
+  });
 });
 
 describe("validateStep", () => {
@@ -173,6 +178,17 @@ describe("validateStep", () => {
     expect(() => validateStep({ action: "fill", selector: "#x" })).toThrow(/fill.*value/);
     expect(() => validateStep({ action: "screenshot" })).toThrow(/screenshot.*name/);
     expect(() => validateStep({ action: "waitFor" })).toThrow(/waitFor.*selector.*ms/);
+  });
+  it("accepts valid assert steps", () => {
+    expect(() => validateStep({ action: "assert", selector: "#x" })).not.toThrow(); // defaults to visible
+    expect(() => validateStep({ action: "assert", selector: "#x", state: "hidden" })).not.toThrow();
+    expect(() => validateStep({ action: "assert", selector: ".toast", text: "Saved" })).not.toThrow();
+    expect(() => validateStep({ action: "assert", urlContains: "/reports" })).not.toThrow();
+  });
+  it("rejects invalid assert steps", () => {
+    expect(() => validateStep({ action: "assert" })).toThrow(/assert.*selector.*urlContains/);
+    expect(() => validateStep({ action: "assert", selector: "#x", state: "shiny" as any })).toThrow(/assert.*state/);
+    expect(() => validateStep({ action: "assert", text: "Saved" })).toThrow(/assert.*selector/);
   });
 });
 

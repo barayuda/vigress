@@ -9,11 +9,18 @@ export function parseFigmaRef(against: string): { fileKey: string; nodeId: strin
   return { fileKey: ref.slice(0, slash), nodeId: ref.slice(slash + 1) };
 }
 
+// scale=1 keeps the export at the frame's design size — the target screenshot is
+// captured at deviceScaleFactor 1, and the diff crops both images to their common
+// top-left, so a 2x export would compare the page against a quarter of the design.
+export function figmaImageApiUrl(fileKey: string, nodeId: string): string {
+  return `https://api.figma.com/v1/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=1`;
+}
+
 // Figma REST: get a PNG export URL for the node, then download it. Returns outPath.
 export async function figmaSource(against: string, outPath: string, token: string): Promise<string> {
   if (!token) throw new Error("FIGMA_TOKEN is required for a figma: baseline");
   const { fileKey, nodeId } = parseFigmaRef(against);
-  const api = `https://api.figma.com/v1/images/${fileKey}?ids=${encodeURIComponent(nodeId)}&format=png&scale=2`;
+  const api = figmaImageApiUrl(fileKey, nodeId);
   const meta = await fetch(api, { headers: { "X-Figma-Token": token } });
   if (!meta.ok) throw new Error(`Figma API error ${meta.status} for ${fileKey}`);
   const body = (await meta.json()) as { err?: string; images: Record<string, string | null> };

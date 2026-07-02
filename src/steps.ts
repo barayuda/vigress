@@ -11,6 +11,7 @@ export function isCheckStep(step: Step): boolean {
     case "fill":
     case "select":
     case "hover":
+    case "assert": // an assertion is always a functionality check, selector or not
       return true;
     case "press":
     case "scroll":
@@ -95,6 +96,23 @@ export async function runSteps(
           const rel = `${slug(name)}.${slug(st.name ?? "shot")}.png`;
           await page.screenshot({ path: join(outDir, rel), animations: "disabled", caret: "hide" });
           shots.push({ name: st.name ?? "shot", path: rel });
+          break;
+        }
+        // assert verifies an *outcome* (element state / text / URL), so a broken
+        // control that "clicks fine" but does nothing still fails the check.
+        case "assert": {
+          if (st.urlContains !== undefined && !page.url().includes(st.urlContains)) {
+            throw new Error(`url "${page.url()}" does not contain "${st.urlContains}"`);
+          }
+          if (loc) {
+            await loc.waitFor({ state: st.state ?? "visible", timeout: 5000 });
+            if (st.text !== undefined) {
+              const actual = ((await loc.textContent()) ?? "").trim();
+              if (!actual.includes(st.text)) {
+                throw new Error(`text "${actual.slice(0, 120)}" does not contain "${st.text}"`);
+              }
+            }
+          }
           break;
         }
       }

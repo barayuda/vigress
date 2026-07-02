@@ -9,16 +9,34 @@ export interface BoxItem {
   clip?: Box;
 }
 
+// Translates a page-coordinate box into the screenshot's coordinate space.
+// The screenshot only covers `capture` (the --clip rect, or the viewport at the
+// origin), so the box is intersected with it and offset to the capture's origin.
+// Returns null when the box lies entirely outside the captured area (e.g. below
+// the fold) — the region then scores `unresolved` instead of diffing a clamped
+// sliver at the wrong position.
+export function boxInCapture(box: Box, capture: Box): Box | null {
+  const x0 = Math.max(box.x, capture.x);
+  const y0 = Math.max(box.y, capture.y);
+  const x1 = Math.min(box.x + box.width, capture.x + capture.width);
+  const y1 = Math.min(box.y + box.height, capture.y + capture.height);
+  if (x1 <= x0 || y1 <= y0) return null;
+  return { x: x0 - capture.x, y: y0 - capture.y, width: x1 - x0, height: y1 - y0 };
+}
+
 export async function resolveBoxes(
   page: Page,
   items: BoxItem[],
+  capture?: Box,
 ): Promise<Record<string, Box | null>> {
   const out: Record<string, Box | null> = {};
   for (const it of items) {
     if (it.selector) {
       try {
         const bb = await page.locator(it.selector).first().boundingBox();
-        out[it.key] = bb ? { x: bb.x, y: bb.y, width: bb.width, height: bb.height } : null;
+        // DOM boxes are in page coordinates; clip fallbacks below are authored
+        // against the screenshot and pass through untranslated.
+        out[it.key] = bb && capture ? boxInCapture(bb, capture) : bb;
       } catch {
         out[it.key] = null;
       }

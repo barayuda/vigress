@@ -1,7 +1,8 @@
 import type { BaselineType, Viewport, ChecklistItem, StepAction } from "./config";
 import type { StyleDiffEntry } from "./style";
 
-export const SCHEMA_VERSION = 5;
+// v6: steps[] may contain the "assert" action (state/text/urlContains outcome checks).
+export const SCHEMA_VERSION = 6;
 
 export interface BoxDims {
   width: number;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { PNG } from "pngjs";
-import { paintMask, cropToBox, scoreRegion, MASK_COLOR } from "./regions";
+import { paintMask, cropToBox, scoreRegion, boxInCapture, MASK_COLOR } from "./regions";
 
 function solid(w: number, h: number, v: number): PNG {
   const png = new PNG({ width: w, height: h });
@@ -36,6 +36,32 @@ describe("cropToBox", () => {
     expect(c.width).toBe(4);
     expect(c.height).toBe(3);
     expect(px(c, 0, 0)).toEqual([7, 7, 7]);
+  });
+});
+
+describe("boxInCapture", () => {
+  const clip = { x: 264, y: 56, width: 1176, height: 2000 };
+  it("offsets a page-coordinate box into capture coordinates when --clip is set", () => {
+    expect(boxInCapture({ x: 300, y: 100, width: 200, height: 50 }, clip)).toEqual({
+      x: 36, y: 44, width: 200, height: 50,
+    });
+  });
+  it("returns the box unchanged for a capture at the origin (no clip)", () => {
+    const viewportRect = { x: 0, y: 0, width: 1440, height: 900 };
+    expect(boxInCapture({ x: 10, y: 20, width: 100, height: 40 }, viewportRect)).toEqual({
+      x: 10, y: 20, width: 100, height: 40,
+    });
+  });
+  it("returns null when the box lies fully outside the capture (e.g. below the fold)", () => {
+    const viewportRect = { x: 0, y: 0, width: 1440, height: 900 };
+    expect(boxInCapture({ x: 10, y: 1200, width: 100, height: 40 }, viewportRect)).toBeNull();
+    expect(boxInCapture({ x: 10, y: 10, width: 100, height: 40 }, clip)).toBeNull(); // above the clip
+  });
+  it("clamps a partially visible box to the overlap", () => {
+    const viewportRect = { x: 0, y: 0, width: 1440, height: 900 };
+    expect(boxInCapture({ x: 1400, y: 880, width: 100, height: 40 }, viewportRect)).toEqual({
+      x: 1400, y: 880, width: 40, height: 20,
+    });
   });
 });
 

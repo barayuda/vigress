@@ -1,12 +1,12 @@
 import type { BrowserContext } from "playwright";
 import type { Box, RunSpec } from "../config";
 import { imageSource } from "./imageSource";
-import { figmaSource, parseFigmaRef } from "./figmaSource";
+import { figmaSource, figmaImageApiUrl, parseFigmaRef } from "./figmaSource";
 import { urlSource } from "./urlSource";
 import type { BoxItem } from "../regions";
 import type { StyleItem, StyleValues } from "../style";
 
-export { imageSource, figmaSource, parseFigmaRef, urlSource };
+export { imageSource, figmaSource, figmaImageApiUrl, parseFigmaRef, urlSource };
 
 export async function resolveBaseline(
   spec: RunSpec,
@@ -15,10 +15,15 @@ export async function resolveBaseline(
   env: NodeJS.ProcessEnv,
   items: BoxItem[] = [],
   styleItems: StyleItem[] = [],
+  statePath?: string,
 ): Promise<{ path: string; boxes: Record<string, Box | null>; styles: Record<string, StyleValues> }> {
   switch (spec.baselineType) {
-    case "url":
-      return urlSource(ctx, spec.against, outPath, spec.clip, items, styleItems);
+    case "url": {
+      // Baseline captures share the target's clip/viewport, so DOM boxes are
+      // translated into the same screenshot coordinate space.
+      const capture = spec.clip ?? { x: 0, y: 0, width: spec.viewport.width, height: spec.viewport.height };
+      return urlSource(ctx, spec.against, outPath, spec.clip, items, styleItems, capture, statePath);
+    }
     case "image":
       // No DOM to probe — image/figma baselines never resolve style values.
       await imageSource(spec.against, outPath);

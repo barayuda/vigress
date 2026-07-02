@@ -43,6 +43,10 @@ describe("isCheckStep", () => {
   it("screenshot is never a check", () => {
     expect(isCheckStep({ action: "screenshot", name: "s" })).toBe(false);
   });
+  it("assert is always a check, even without a selector (urlContains-only)", () => {
+    expect(isCheckStep({ action: "assert", selector: "#x" })).toBe(true);
+    expect(isCheckStep({ action: "assert", urlContains: "/reports" })).toBe(true);
+  });
 });
 
 describe("stepSummary", () => {
