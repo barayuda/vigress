@@ -28,6 +28,18 @@ The `screenshot` step saves `<name>.date-open.png`, displays it in the "flow
 shots" strip in `report.html`, and surfaces it in `shots[]` in the JSON payload.
 It is not pixel-diffed — it is a visual record of the interacted state.
 
+Add an `assert` step after an interaction to verify the outcome (element
+`state`/`text`, or `urlContains`) — clicking alone only proves the selector
+resolved, not that the control worked:
+
+```json
+"steps": [
+  { "action": "click",  "selector": "[data-testid=period-input]" },
+  { "action": "assert", "selector": "[role=listbox]", "state": "visible" },
+  { "action": "press",  "key": "Escape" }
+]
+```
+
 Use steps when auto-explore is insufficient: e.g. switch a channel selector, open
 a multi-step filter, or verify a drawer/modal that only opens on a specific
 interaction sequence.
@@ -98,7 +110,7 @@ the page has animation or the auto-explore triggers noise).
 
 | symptom | how to neutralize |
 |---|---|
-| Pixel tokens not injected on `localhost` — colors differ from staging | Detect via `getComputedStyle(documentElement).getPropertyValue('--mp-colors-text-secondary')` returning `""` or the raw variable string. Fix: use `var(--token, #hex)` inline fallbacks, or replace with literal hex for canvas comparisons. |
+| Design-system tokens not injected on `localhost` — colors differ from staging | Detect via `getComputedStyle(documentElement).getPropertyValue('--<your-token-name>')` returning `""` or the raw variable string. Fix: use `var(--token, #hex)` inline fallbacks, or replace with literal hex for canvas comparisons. |
 | Sticky header/footer shows content bleed-through — `transparent` background | Ensure the sticky element has an opaque `background-color` (the token must resolve). Use `computed-style` verify-method; mask if the background token is intentionally transparent and the bleed is expected. |
 | Dynamic content (timestamps, live counts, "Today (date)") inflates mismatch | Add a `mask` entry targeting the dynamic element: `{ "selector": "[data-testid=date-filter]" }`. The mask paints both sides opaque magenta before diffing, so the element is excluded. |
 | `networkidle` never settles — MQTT/long-poll connections keep the network busy | `vigress` proceeds after a timeout; this is expected behavior. The capture is taken after the page-load timeout, not strictly at networkidle. No action needed; note it in the run context. |

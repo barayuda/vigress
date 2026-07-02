@@ -137,6 +137,19 @@ The same `--state` is applied to **both** the target and any URL baseline
 capture. If the file is missing, `vigress` fails fast with a hint to run `login`.
 When the session expires, just re-run `login`.
 
+**Expired sessions fail fast.** If a capture with `--state` lands on a login
+page (the URL path gains a `login`/`sign-in`/`sso`/`auth` segment it didn't ask
+for), the run aborts with a "session has likely expired" error instead of
+silently diffing two login screens.
+
+**Validate a session without signing in:**
+```bash
+bun run src/cli.ts login --url https://staging.example.com --state auth.state.json --check
+```
+Headless and non-interactive: exits `0` if the session still works, `1` if it
+redirected to a login page (with `--json`: `{url, state, finalUrl, loggedIn}`).
+Useful for scripts and AI agents to pre-flight the session before a run.
+
 > `auth.state.json` contains live credentials — it's git-ignored by default
 > (`*.state.json`). Keep it out of version control.
 
@@ -146,7 +159,9 @@ When the session expires, just re-run `login`.
 
 ```
 bun run src/cli.ts [--target <url> --against <ref>] [options]
-bun run src/cli.ts login --url <url> --state <path>
+bun run src/cli.ts login --url <url> --state <path> [--check]
+bun run src/cli.ts init-config <page> --target <url> --against <ref> [--viewport WxH]
+bun run src/cli.ts discover <page> --target <url> --against <url> [--viewport WxH] [--state f] [--max-steps n]
 bun run src/cli.ts --config <file.json> [options]
 ```
 
@@ -168,15 +183,22 @@ bun run src/cli.ts --config <file.json> [options]
 | `--quiet` | boolean | `false` | Suppress the per-comparison log lines. |
 | `--max-mismatch` | number (pct) | — | Exit non-zero if any comparison exceeds this %. |
 | `--require-steps` | boolean | `false` | Exit non-zero if any functionality check step failed (i.e. any step with `check: true` has `status: "failed"`). Combines with `--max-mismatch`. |
+| `--require-style` | boolean | `false` | Exit non-zero if any region's `styleDiff` contains a `match: false` entry. See [Regions & masks](#regions--masks). |
 | `--config` | path | — | Run a batch of comparisons from a JSON file. |
 | `--step` | string (repeatable) | — | Add one interaction step (single-run only). Format: `"action=click;selector=[data-testid=x]"`. See [Interaction steps & auto-explore](#interaction-steps--auto-explore). |
 | `--no-steps` | boolean | — | Disable interaction entirely; capture is static (no auto-explore, no steps). |
 | `--url` | string | — | (login only) the URL to open for sign-in. |
+| `--check` | boolean | — | (login only) validate the saved session headlessly instead of signing in — exit `0` logged in, `1` expired. |
+| `--max-steps` | number | `20` | (discover only) cap on generated click+screenshot step pairs. |
 
-**Subcommand:** `login` — opens a headed browser to capture a `storageState`.
+**Subcommands:**
+- `login` — opens a headed browser to capture a `storageState`; with `--check`, validates an existing session headlessly.
+- `init-config <page>` — scaffolds `<page>.fullcheck.json` with `REPLACE-*` placeholders (no browser).
+- `discover <page>` — crawls the live `--target` DOM (read-only) and writes a run-ready `<page>.fullcheck.json`.
 
-**Exit codes:** `0` success · `1` a comparison exceeded `--max-mismatch` (or an
-unexpected error) · `2` usage error (missing required args).
+**Exit codes:** `0` success · `1` a gate tripped (`--max-mismatch`,
+`--require-steps`, `--require-style`) or an unexpected error · `2` usage error
+(missing required args).
 
 ---
 
@@ -270,7 +292,24 @@ Per-region scoring lets you isolate specific UI areas, giving each a separate mi
 }
 ```
 
-**`regions[]` fields:** `name` (artifact key), `target` (CSS selector on the new app), `baseline` (CSS selector on the reference), `selector` (applies to both sides), `clip` (`{x,y,width,height}` raw fallback), `maxMismatch` (% threshold, default 5). Precedence per side: `target`/`baseline` → `selector` → `clip`.
+**`regions[]` fields:** `name` (artifact key), `target` (CSS selector on the new app), `baseline` (CSS selector on the reference), `selector` (applies to both sides), `clip` (`{x,y,width,height}` raw fallback), `maxMismatch` (% threshold, default 5), `style` (opt-in computed-style diff, see below). Precedence per side: `target`/`baseline` → `selector` → `clip`.
+
+**Coordinates:** selector-resolved region/mask boxes are automatically translated
+into the screenshot's coordinate space when `--clip` is set, and a region that
+lies entirely outside the captured area (e.g. below the fold) scores
+`unresolved` rather than diffing the wrong pixels. `clip`-style regions/masks
+are taken as-is — author them against the final screenshot.
+
+**Style diffing (`style`):** pixel diff says *how many* pixels differ, not
+*why*. Set `"style": true` on a region to also compare computed styles
+property-by-property (`color`, `backgroundColor`, `fontSize`, `fontWeight`,
+`fontFamily`, `padding`, `margin`, `border`, `borderRadius`, `boxShadow`), or
+pass an explicit list like `"style": ["color", "backgroundColor"]`. Results
+land in `regions[].styleDiff` as `{property, target, baseline, match}` and in a
+per-region table in `report.html`. Only works against a **URL baseline** (an
+image/Figma baseline has no DOM to read styles from). Gate on it with
+`--require-style`. CLI flag form: append `;style=true` or
+`;style=color,backgroundColor` to a `--region` flag.
 
 **`mask[]` fields:** same `target`, `baseline`, `selector`, `clip` shape. Matched regions are painted opaque magenta on both sides before diffing.
 
@@ -361,6 +400,7 @@ Each step is a `key=value` string delimited by `;`:
 | `waitFor` | `selector` OR `ms` | — | Waits until the element is visible, or for `ms` milliseconds. |
 | `scroll` | `selector` OR `by` | — | Scrolls the element into view, or scrolls the page by `by` pixels. |
 | `screenshot` | `name` | — | Saves `<name>.<shot>.png` in the output directory. The file appears in the "flow shots" strip in `report.html` and in `shots[]` in the JSON payload, but is **not** diffed. |
+| `assert` | `selector` OR `urlContains` | `state`, `text` | Verifies an **outcome**: the element reaches `state` (`visible` default, or `hidden`), its text contains `text`, and/or the page URL contains `urlContains`. Fails the step when the expectation isn't met — so a control that "clicks fine" but does nothing still fails the check. |
 
 Each step is best-effort: a failure is logged to stderr and skipped; it never
 aborts the rest of the flow.
@@ -387,10 +427,10 @@ payload gain a `steps[]` array on each run entry:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `index` | number | Zero-based position of the step in the steps array. |
+| `index` | number | 1-based position of the step in the steps array. |
 | `action` | string | The step action (`click`, `fill`, `press`, etc.). |
 | `selector` | string? | The selector used (omitted for `screenshot`, `press`/`scroll`/`waitFor` without a selector). |
-| `check` | boolean | Whether this step is a **functionality check**: `true` for `click`, `fill`, `select`, `hover` (always); `press`, `scroll`, `waitFor` with a selector; `false` for `screenshot` and selector-less `press`/`scroll`/`waitFor`. |
+| `check` | boolean | Whether this step is a **functionality check**: `true` for `click`, `fill`, `select`, `hover`, `assert` (always); `press`, `scroll`, `waitFor` with a selector; `false` for `screenshot` and selector-less `press`/`scroll`/`waitFor`. |
 | `status` | `"ok"` \| `"failed"` | `"ok"` means the selector resolved and the action ran; `"failed"` means the element was not found or the action threw. |
 | `error` | string? | Error message when `status` is `"failed"`. |
 
@@ -404,9 +444,10 @@ functionality: X/Y checks passed
 
 where `X` is the count of `ok` check-steps and `Y` is the total check-steps.
 
-### New outputs (schemaVersion 4)
+### New outputs (schemaVersion 6)
 
-`summary.json` and the `--json` payload are now **`schemaVersion: 4`**. Each run
+`summary.json` and the `--json` payload are now **`schemaVersion: 6`** (v5
+added `regions[].styleDiff`; v6 added the `assert` step action). Each run
 entry adds:
 
 | Field | Type | Description |
@@ -442,7 +483,7 @@ video. It references the artifacts by relative path, so open it directly
 **`summary.json`** (artifact paths are **relative** to `outDir`):
 ```json
 {
-  "schemaVersion": 4,
+  "schemaVersion": 6,
   "outDir": "/abs/path/out",
   "reportHtml": "report.html",
   "summaryJson": "summary.json",
@@ -480,7 +521,7 @@ shape as `summary.json` but with **absolute** artifact paths, ready to read:
 bun run src/cli.ts --target … --against … --state auth.state.json --json --quiet
 ```
 ```json
-{ "schemaVersion": 4, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
+{ "schemaVersion": 6, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
   "summaryJson": "/abs/out/summary.json",
   "runs": [ { "name": "contact", "baselineType": "url", "viewport": {"width":1440,"height":900},
               "mismatchPixels": 12345, "mismatchPercent": 4.2,
@@ -529,6 +570,7 @@ CLI flags always win over env vars. Bun auto-loads `.env`.
 | `VIGRESS_OUT` | default output dir | `--out` |
 | `VIGRESS_STATE` | default storageState path | `--state` |
 | `VIGRESS_VIEWPORT` | default viewport (`WxH`) | `--viewport` |
+| `VIGRESS_SETTLE` | milliseconds to cap the `networkidle` wait per capture (default `8000`) — SPAs with persistent sockets (MQTT/long-poll) never reach networkidle, so the wait is bounded | — |
 | `VIGRESS_DWELL` | milliseconds to hold after each interaction step (default `1000`), giving the video time to show each step clearly | — |
 
 ---
@@ -561,7 +603,7 @@ bun run src/cli.ts --config comparisons.json --state auth.state.json --json --ma
 | Symptom | Fix |
 |---------|-----|
 | `browserType.launch: ... channel "chrome"` not found | Install Google Chrome, or `bunx playwright install chromium` and switch `src/browser.ts` to `chromium.launch({ headless: true })`. |
-| `No session at "…"` / pages render logged-out | Run `vigress login --url <app> --state <path>` and pass the same `--state`. Re-run when it expires. |
+| `No session at "…"` / `session has likely expired` | Run `vigress login --url <app> --state <path>` and pass the same `--state`. Verify a saved session anytime with `vigress login --url <app> --state <path> --check`. |
 | Figma: "no image for node" / 403 | Check `FIGMA_TOKEN`, the `figma:FILEKEY/NODEID` ref (node id uses `:`), and that the token can read that file. |
 | Huge mismatch % but pages "look the same" | Expected noise (fonts/shell/offset). Use `--clip` and judge by the diff image, not the number. |
 | No `.webm` produced | Video is on by default — check you didn't pass `--no-video` or set `"video": false` on the entry. |

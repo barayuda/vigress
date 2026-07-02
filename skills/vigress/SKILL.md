@@ -20,6 +20,20 @@ bun run src/cli.ts --target <url> --against <url|img.png|figma:KEY/NODE> \
   --state auth.state.json --out out --json
 ```
 
+**`login` is interactive by design** — it opens a headed browser, waits for a
+human to sign in, and blocks on an Enter keypress in the terminal. An agent must
+NOT run it headlessly (it will hang); ask the human to run it instead. What an
+agent CAN run is the non-interactive session check:
+
+```bash
+bun run src/cli.ts login --url <app-url> --state auth.state.json --check --json
+# → {"url":…,"state":…,"finalUrl":…,"loggedIn":true|false} · exit 0 = ok, 1 = expired
+```
+
+Pre-flight the session with `--check` before a long run. If a capture with
+`--state` lands on a login page mid-run, vigress aborts with a
+"session has likely expired" error rather than diffing login screens.
+
 Each run writes to a timestamped subfolder `out/<YYYY-MM-DD_HH-MM-SS>/`, so
 previous runs are never overwritten (the `--json` payload + log line print the
 exact path). Inside: `<name>.{target,baseline,diff}.png`, `video/*.webm`,
@@ -38,12 +52,16 @@ Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
 `[{ "name","target","against","clip?","viewport?" }, …]`.
 
 ## For AI agents
-- Pass `--json`: stdout is a single object `{ schemaVersion: 5, outDir, reportHtml,
+- Pass `--json`: stdout is a single object `{ schemaVersion: 6, outDir, reportHtml,
   runs:[{ name, mismatchPercent, target, baseline, diff, video, mode, shots:[],
   steps:[{index,action,selector?,check,status,error?}],
   regions:[{name,mismatchPercent,verdict,reason,diff,styleDiff?:[{property,target,baseline,match}]}],
   checklist:[{aspect,region,verdict,workaround}] }] }` with absolute
   paths — Read the `diff` PNG; open `reportHtml` for the human view.
+- Each run writes to a **timestamped subfolder** — always take artifact paths
+  from the JSON payload (`outDir` etc.), never assume `out/` directly.
+- Exit codes: `0` ok · `1` a gate tripped (`--max-mismatch`, `--require-steps`,
+  `--require-style`) or an unexpected error · `2` usage error.
 - `--quiet` to suppress chatter; `--max-mismatch <pct>` to make it exit non-zero
   (gate). The mismatch % is noisy (token/shell/render differences) — treat the
   diff image + video as the real signal, not a hard pass/fail, unless gating.
@@ -180,15 +198,35 @@ the JSON output and the HTML report.
 **Default precedence:** `--no-steps` → `static`; `steps`/`--step` present →
 `steps`; otherwise → `explore` (auto-explore, the default).
 
+### Asserting outcomes (not just clickability)
+
+A `click` step passing only proves the selector resolved and the click ran —
+not that anything happened. Follow interactions with an `assert` step to verify
+the **outcome**; a control that "clicks fine" but does nothing then fails the
+check (and `--require-steps` gates on it):
+
+```json
+"steps": [
+  { "action": "click",  "selector": "[data-testid=export-btn]" },
+  { "action": "assert", "selector": "[role=dialog]", "state": "visible" },
+  { "action": "assert", "selector": ".toast", "text": "Export started" },
+  { "action": "assert", "urlContains": "/reports" }
+]
+```
+
+`assert` needs `selector` and/or `urlContains`; optional `state`
+(`visible` default, or `hidden`) and `text` (element text must contain it).
+CLI form: `--step "action=assert;selector=[role=dialog];state=visible"`.
+
 ### Per-step pass/fail results
 
-Each step reports a result. `summary.json` and `--json` are **schemaVersion 5**
+Each step reports a result. `summary.json` and `--json` are **schemaVersion 6**
 and include `mode`, `shots[]`, and `steps[]` on each run entry. The `steps[]`
 shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
 
 - `check: true` for selector-dependent actions (`click`, `fill`, `select`,
-  `hover`; `press`/`scroll`/`waitFor` when a `selector` is given) — these count
-  as **functionality checks**.
+  `hover`; `press`/`scroll`/`waitFor` when a `selector` is given) and always
+  for `assert` — these count as **functionality checks**.
 - `check: false` for `screenshot` and selector-less `press`/`scroll`/`waitFor`.
 - `status: "ok"` means the selector resolved and the action ran; `"failed"` means
   the element was not found or the action threw (the error is in `error`).
