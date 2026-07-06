@@ -39,7 +39,7 @@ export function parseManifest(jsonText: string): Manifest {
     );
   }
   if (!m.baselines || typeof m.baselines !== "object" || Array.isArray(m.baselines)) {
-    throw new Error("vigress baselines: manifest is missing the 'baselines' object");
+    throw new Error("vigress baselines: manifest 'baselines' field must be a plain object");
   }
   return m;
 }

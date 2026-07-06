@@ -156,6 +156,8 @@ export function diffWithRegions(params: {
 // steps absent from the run are "missing" (a promised state disappeared).
 export function diffShots(params: {
   shots: Shot[];
+  // approvedSteps paths are repo-root(cwd)-relative by the manifest contract —
+  // diffPngs resolves them against cwd.
   approvedSteps: Record<string, string>; // shot name -> path resolvable from cwd
   outDir: string;
   name: string;
@@ -171,6 +173,8 @@ export function diffShots(params: {
       out.push({ name: shot.name, mismatchPercent: 0, verdict: "new" });
       continue;
     }
+    // Shot names pass through slug() for the artifact filename — two step names
+    // that slug identically (e.g. "01 open" and "01-open") would collide here.
     const rel = `${slug(params.name)}.${slug(shot.name)}.stepdiff.png`;
     const d = diffPngs(approved, join(params.outDir, shot.path), join(params.outDir, rel), params.threshold ?? 0.1);
     out.push({

@@ -66,6 +66,7 @@ Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `au
 
 ### Behaviors that look wrong but are deliberate
 
+- `--update-baseline` blesses even a gate-tripped run (exit 1 still reported) — this is by design (the flag means "bless regardless"). **Never leave it always-on in CI**: a regression would be blessed as the new baseline before the failure surfaced.
 - `capture.ts` screenshots with `animations: "disabled"` — without it, perpetual loaders never yield two identical frames and `page.screenshot()` times out.
 - Each run writes to a timestamped subdir under `--out` so prior runs persist; `--no-timestamp` overwrites in place.
 - Video records **by default** in both single and batch mode; `--no-video` / `"video": false` is the only opt-out.

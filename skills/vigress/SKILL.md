@@ -380,7 +380,9 @@ bun run src/cli.ts --config <page>.fullcheck.json --update-baseline
 
 Runs normally, then approves all results. If a `baseline:<name>` ref has no manifest entry yet,
 that run is a **bootstrap**: diff phase skipped, captured and approved, `bootstrap: true` in the
-result. Second run onward diffs normally. Applies to all entries in batch mode.
+result. Second run onward diffs normally. Works in both single-run and batch mode.
+
+> **CI footgun:** `--update-baseline` blesses captures even when a gate trips — the run still exits 1, but the manifest now points at the failing state. Never leave it permanently enabled in CI; use it only for bootstrapping or intentional re-blessing.
 
 ### Step-diff verdicts
 

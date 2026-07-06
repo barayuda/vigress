@@ -194,7 +194,7 @@ bun run src/cli.ts --config <file.json> [options]
 | `--url` | string | — | (login only) the URL to open for sign-in. |
 | `--check` | boolean | — | (login only) validate the saved session headlessly instead of signing in — exit `0` logged in, `1` expired. |
 | `--max-steps` | number | `20` | (discover only) cap on generated click+screenshot step pairs. |
-| `--update-baseline` | boolean | — | After the run completes, approve all results into `baselines/manifest.json`. If a `baseline:<name>` ref has no manifest entry yet, that run is a bootstrap: diff phase skipped, then approved. Applies to all entries in batch mode. |
+| `--update-baseline` | boolean | — | After the run completes, approve all results into `baselines/manifest.json`. If a `baseline:<name>` ref has no manifest entry yet, that run is a bootstrap: diff phase skipped, then approved. Works in both single-run and batch mode (all entries are approved in batch). |
 | `--run` | path | — | (approve only) bless from a specific run directory instead of auto-finding the newest. |
 | `--all` | boolean | — | (approve only) bless every entry in the run, not just the named one. |
 
@@ -280,6 +280,13 @@ bun run src/cli.ts --config contact.fullcheck.json --update-baseline
 - Runs normally, then approves all results.
 - If a `baseline:<name>` ref has no manifest entry yet, that run is a **bootstrap**: the diff phase is skipped (nothing to diff against), everything is captured, and then approved. Subsequent runs diff normally.
 - In batch mode, `--update-baseline` applies to every entry — including url/figma parity entries. This is the intended bridge: check the page against staging/Figma, bless that exact state, then guard it with a `baseline:` run going forward.
+- Works in single-run mode too (approves the single result).
+
+> **WARNING — CI footgun:** `--update-baseline` blesses the run's captures even when a gate trips (`--max-mismatch`, `--require-steps`). The run still exits 1, but the manifest now points at the **failing state** — a regression is blessed as the new baseline before the failure is reported. **Never leave `--update-baseline` permanently enabled in CI.** Use it deliberately: bootstrapping a new baseline or intentionally re-blessing an accepted change only.
+
+> **Manifest key semantics:** The key written by `approve`/`--update-baseline` is always the run's `name` — **not** the name inside `baseline:<name>`. If a config entry has `"name": "contact-v2"` with `"against": "baseline:contact"`, `--update-baseline` creates/updates the `contact-v2` entry; it does **not** update `contact`.
+
+> **`--no-steps` with an approved baseline:** running `--no-steps` against a `baseline:` ref whose manifest entry has approved step shots produces all-`missing` stepDiffs, which trips `--require-steps`. Use `--no-steps` there only if you intentionally omit `--require-steps`.
 
 ### The manifest
 

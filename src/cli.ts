@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join, resolve, relative, dirname } from "node:path";
+import { join, resolve, relative } from "node:path";
 import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, buildManifestEntry, upsertBaseline, pickNewestRun, parseBaselineRef, resolveBaselineArtifacts, type RunDirCandidate, type ManifestEntry } from "./baselines";
 import type { BrowserContext } from "playwright";
 import { buildRunConfig, buildScaffoldConfig, scaffoldPlaceholders, parseViewport, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem, type Box } from "./config";
@@ -232,7 +232,11 @@ async function main(): Promise<number> {
     }
     const toApprove = all ? candidate.summary.runs : candidate.summary.runs.filter((r) => r.name === name);
     if (!toApprove.length) {
-      process.stderr.write(`vigress approve: run '${name}' not in ${candidate.dir} — has: ${candidate.summary.runs.map((r) => r.name).join(", ")}\n`);
+      process.stderr.write(
+        all
+          ? `vigress approve: no runs found in ${candidate.dir}\n`
+          : `vigress approve: run '${name}' not in ${candidate.dir} — has: ${candidate.summary.runs.map((r) => r.name).join(", ")}\n`,
+      );
       return 1;
     }
     const manifestFile = resolve(MANIFEST_PATH);
@@ -497,7 +501,7 @@ async function main(): Promise<number> {
       const stepsNote = mode === "steps" ? ` · steps ${ss.ok}/${ss.total} ok` : "";
       const styleMismatches = regions.reduce((n, r) => n + (r.styleDiff?.filter((s) => !s.match).length ?? 0), 0);
       const styleNote = regions.some((r) => r.styleDiff) ? ` · style ${styleMismatches} mismatch(es)` : "";
-      const pctNote = isBootstrap ? "bootstrap (new baseline)" : `mismatch ${full!.mismatchPercent}%`;
+      const pctNote = isBootstrap ? "bootstrap (new baseline)" : `mismatch ${full?.mismatchPercent ?? 0}%`;
       const stepDiffNote = stepDiffs.length ? ` · ${stepDiffs.filter((d) => d.verdict === "ok").length}/${stepDiffs.length} step diff(s) ok` : "";
       log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} ${pctNote} · ${mode}${stepsNote}${styleNote}${stepDiffNote} · ${regions.length} region(s) -> ${isBootstrap ? targetRel : diffRel}`);
     }
