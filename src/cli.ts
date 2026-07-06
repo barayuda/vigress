@@ -45,6 +45,9 @@ const { values, positionals } = parseArgs({
     "require-style": { type: "boolean" },
     "max-steps": { type: "string" },
     check: { type: "boolean" },
+    "update-baseline": { type: "boolean" },
+    run: { type: "string" },
+    all: { type: "boolean" },
   },
 });
 

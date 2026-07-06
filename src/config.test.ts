@@ -242,3 +242,28 @@ describe("scaffoldPlaceholders", () => {
     expect(scaffoldPlaceholders([{ name: "done", steps: [{ action: "click", selector: "#x" }] }])).toEqual([]);
   });
 });
+
+describe("baseline: refs", () => {
+  it("detects baseline: as its own baseline type", () => {
+    expect(detectBaselineType("baseline:csat-v2-fullcheck")).toBe("baseline");
+    expect(detectBaselineType("https://x.test/a")).toBe("url");
+    expect(detectBaselineType("figma:KEY/1:2")).toBe("figma");
+    expect(detectBaselineType("shot.png")).toBe("image");
+  });
+
+  it("parses --update-baseline into GlobalOpts", () => {
+    const { opts } = buildRunConfig(
+      { target: "https://a.test/p", against: "baseline:p", "update-baseline": true },
+      {} as NodeJS.ProcessEnv,
+    );
+    expect(opts.updateBaseline).toBe(true);
+  });
+
+  it("defaults updateBaseline to false", () => {
+    const { opts } = buildRunConfig(
+      { target: "https://a.test/p", against: "https://b.test/p" },
+      {} as NodeJS.ProcessEnv,
+    );
+    expect(opts.updateBaseline).toBe(false);
+  });
+});

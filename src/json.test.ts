@@ -95,7 +95,7 @@ describe("buildJsonPayload stepDiffs + bootstrap", () => {
     const s: Summary = {
       schemaVersion: SCHEMA_VERSION, outDir: "/tmp/out", reportHtml: "report.html", summaryJson: "summary.json",
       runs: [{
-        name: "page", baselineType: "image", viewport: { width: 1440, height: 900 },
+        name: "page", baselineType: "baseline", viewport: { width: 1440, height: 900 },
         target: "page.target.png", targetUrl: "https://app.test/page",
         bootstrap: true,
         regions: [], checklist: [], mode: "steps", shots: [], steps: [],

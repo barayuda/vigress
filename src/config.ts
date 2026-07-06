@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-export type BaselineType = "url" | "image" | "figma";
+export type BaselineType = "url" | "image" | "figma" | "baseline";
 
 export interface Viewport {
   width: number;
@@ -80,6 +80,7 @@ export interface GlobalOpts {
   quiet: boolean;
   maxMismatch?: number;
   threshold: number;
+  updateBaseline: boolean;
 }
 
 export function parseViewport(s?: string): Viewport {
@@ -92,6 +93,7 @@ export function parseViewport(s?: string): Viewport {
 export function detectBaselineType(against: string): BaselineType {
   if (/^https?:\/\//.test(against)) return "url";
   if (against.startsWith("figma:")) return "figma";
+  if (against.startsWith("baseline:")) return "baseline";
   return "image";
 }
 
@@ -283,6 +285,7 @@ export function buildRunConfig(
     quiet: values.quiet === true,
     maxMismatch: str("max-mismatch") !== undefined ? Number(str("max-mismatch")) : undefined,
     threshold: str("threshold") !== undefined ? Number(str("threshold")) : 0.1,
+    updateBaseline: values["update-baseline"] === true,
   };
 
   const viewport = parseViewport(str("viewport") ?? env.VIGRESS_VIEWPORT);
