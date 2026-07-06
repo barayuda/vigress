@@ -101,6 +101,34 @@ describe("buildReportHtml mode + shots", () => {
   });
 });
 
+describe("buildReportHtml step diffs", () => {
+  it("renders step diffs with verdicts", () => {
+    const html = buildReportHtml({
+      schemaVersion: SCHEMA_VERSION, outDir: "/tmp/out", reportHtml: "report.html", summaryJson: "summary.json",
+      runs: [{ ...summary.runs[0], stepDiffs: [
+        { name: "01-open", mismatchPercent: 1.5, diff: "page.01-open.stepdiff.png", verdict: "ok" },
+        { name: "02-added", mismatchPercent: 0, verdict: "new" },
+        { name: "03-gone", mismatchPercent: 0, verdict: "missing" },
+      ] }],
+    });
+    expect(html).toContain("step diffs vs approved baseline");
+    expect(html).toContain("page.01-open.stepdiff.png");
+    expect(html).toContain("new");
+    expect(html).toContain("missing");
+  });
+
+  it("renders a bootstrap run without baseline/diff figures", () => {
+    const { baseline, diff, mismatchPixels, mismatchPercent, ...rest } = summary.runs[0];
+    const html = buildReportHtml({
+      schemaVersion: SCHEMA_VERSION, outDir: "/tmp/out", reportHtml: "report.html", summaryJson: "summary.json",
+      runs: [{ ...rest, bootstrap: true }],
+    });
+    expect(html).toContain("bootstrap");
+    expect(html).not.toContain('alt="baseline"');
+    expect(html).not.toContain('alt="diff"');
+  });
+});
+
 describe("buildReportHtml functionality steps", () => {
   it("renders a functionality table with pass/fail and a count", () => {
     const s: Summary = {

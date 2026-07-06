@@ -1,4 +1,4 @@
-import type { RunResult, RegionScore, Shot, StepResult, Summary } from "./types";
+import type { RunResult, RegionScore, Shot, StepResult, StepDiff, Summary } from "./types";
 import type { ChecklistItem } from "./config";
 import { stepSummary } from "./steps";
 
@@ -72,30 +72,53 @@ function functionalitySteps(steps: StepResult[]): string {
     </table>`;
 }
 
+function stepDiffRows(stepDiffs: StepDiff[]): string {
+  if (!stepDiffs.length) return "";
+  const cls = (v: StepDiff["verdict"]): string =>
+    v === "ok" ? "pass" : v === "new" ? "unresolved" : "fail";
+  const rows = stepDiffs.map((d) => `
+      <tr class="v-${cls(d.verdict)}">
+        <td>${esc(d.name)}</td>
+        <td>${d.mismatchPercent}%</td>
+        <td>${esc(d.verdict)}</td>
+        <td>${d.diff ? `<img class="thumb" src="${esc(d.diff)}" alt="${esc(d.name)} step diff">` : "—"}</td>
+      </tr>`).join("");
+  return `
+    <div class="fn-label">step diffs vs approved baseline</div>
+    <table class="regions">
+      <thead><tr><th>step</th><th>score</th><th>verdict</th><th>diff</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 function card(r: RunResult): string {
   const video = r.video
     ? `<div class="vid"><video src="${esc(r.video)}" controls muted></video></div>`
     : "";
+  const pct = r.bootstrap ? "bootstrap" : `${r.mismatchPercent ?? 0}%`;
+  const px = r.bootstrap ? "new baseline" : `${r.mismatchPixels ?? 0}px`;
+  const figures = [
+    `<figure><figcaption>target</figcaption><img src="${esc(r.target)}" alt="target"></figure>`,
+    r.baseline ? `<figure><figcaption>baseline</figcaption><img src="${esc(r.baseline)}" alt="baseline"></figure>` : "",
+    r.diff ? `<figure><figcaption>diff</figcaption><img src="${esc(r.diff)}" alt="diff"></figure>` : "",
+  ].join("");
   return `
   <section class="card">
-    <h2>${esc(r.name)} <span class="pct">${r.mismatchPercent}%</span>
-      <span class="meta">${esc(r.baselineType)} · ${r.viewport.width}×${r.viewport.height} · ${r.mismatchPixels}px · ${esc(r.mode)}</span>
+    <h2>${esc(r.name)} <span class="pct">${pct}</span>
+      <span class="meta">${esc(r.baselineType)} · ${r.viewport.width}×${r.viewport.height} · ${px} · ${esc(r.mode)}</span>
     </h2>
-    <div class="imgs">
-      <figure><figcaption>target</figcaption><img src="${esc(r.target)}" alt="target"></figure>
-      <figure><figcaption>baseline</figcaption><img src="${esc(r.baseline)}" alt="baseline"></figure>
-      <figure><figcaption>diff</figcaption><img src="${esc(r.diff)}" alt="diff"></figure>
-    </div>
+    <div class="imgs">${figures}</div>
     ${regionRows(r.regions)}
     ${checklistList(r.checklist)}
     ${functionalitySteps(r.steps)}
+    ${stepDiffRows(r.stepDiffs)}
     ${shotStrip(r.shots)}
     ${video}
   </section>`;
 }
 
 export function buildReportHtml(summary: Summary): string {
-  const worst = summary.runs.reduce((m, r) => Math.max(m, r.mismatchPercent), 0);
+  const worst = summary.runs.reduce((m, r) => Math.max(m, r.mismatchPercent ?? 0), 0);
   return `<!doctype html>
 <html lang="en">
 <head>
