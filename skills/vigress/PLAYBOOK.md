@@ -142,6 +142,10 @@ bun run src/cli.ts --config <page>.fullcheck.json --state auth.state.json --upda
 `approve` writes `baselines/manifest.json` — commit it. The approved `out/<timestamp>/`
 dir must not be deleted (it holds the artifacts the manifest points at).
 
+> **CI footgun:** `--update-baseline` blesses the run even when a gate trips (the run
+> still exits 1, but the manifest now points at the failing state) — never leave it
+> permanently enabled in CI; use it deliberately for bootstrap and re-blessing only.
+
 ### 3 — Regression config
 
 Change `against` to `baseline:<name>` in the config (or use a separate regression config):
