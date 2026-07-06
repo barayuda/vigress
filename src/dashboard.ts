@@ -36,6 +36,7 @@ export function referencedRunDirs(manifest: Manifest | null): Map<string, string
   const refs = new Map<string, string[]>();
   if (!manifest) return refs;
   const add = (dir: string, name: string): void => {
+    if (dir === ".") return; // bare filename → no dir info to lock on
     const list = refs.get(dir) ?? [];
     if (!list.includes(name)) list.push(name);
     refs.set(dir, list);

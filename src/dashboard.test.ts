@@ -30,6 +30,25 @@ describe("referencedRunDirs", () => {
     const refs = referencedRunDirs(m);
     expect(refs.get("out/2026-07-06_15-11-50")).toEqual(["page", "other"]);
   });
+  it("derives locks from artifact paths too, skipping bare filenames", () => {
+    const m = {
+      schemaVersion: 1,
+      baselines: {
+        edited: {
+          storage: "local" as const,
+          approvedAt: "t",
+          approvedFrom: "out/dir-a",
+          viewport: { width: 1, height: 1 },
+          sourceUrl: "x",
+          artifacts: { main: "out/dir-b/page.png", steps: { s1: "bare.png" } },
+        },
+      },
+    };
+    const refs = referencedRunDirs(m);
+    expect(refs.get("out/dir-a")).toEqual(["edited"]);
+    expect(refs.get("out/dir-b")).toEqual(["edited"]);
+    expect(refs.has(".")).toBe(false);
+  });
   it("empty for null manifest", () => {
     expect(referencedRunDirs(null).size).toBe(0);
   });
