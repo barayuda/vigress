@@ -3,8 +3,9 @@ import { join } from "node:path";
 import { PNG } from "pngjs";
 import pixelmatch from "pixelmatch";
 import { paintMask, cropToBox, scoreRegion } from "./regions";
+import { stepDiffVerdict } from "./baselines";
 import type { Box } from "./config";
-import type { RegionScore, BoxDims } from "./types";
+import type { RegionScore, BoxDims, Shot, StepDiff } from "./types";
 
 export interface DiffResult {
   width: number;
@@ -148,4 +149,39 @@ export function diffWithRegions(params: {
   });
 
   return { full, regions };
+}
+
+// Diff each named step screenshot against its approved counterpart.
+// Shots without an approved twin are "new" (never gate-tripping); approved
+// steps absent from the run are "missing" (a promised state disappeared).
+export function diffShots(params: {
+  shots: Shot[];
+  approvedSteps: Record<string, string>; // shot name -> path resolvable from cwd
+  outDir: string;
+  name: string;
+  threshold?: number;
+  maxMismatch?: number;
+}): StepDiff[] {
+  const out: StepDiff[] = [];
+  const seen = new Set<string>();
+  for (const shot of params.shots) {
+    seen.add(shot.name);
+    const approved = params.approvedSteps[shot.name];
+    if (!approved) {
+      out.push({ name: shot.name, mismatchPercent: 0, verdict: "new" });
+      continue;
+    }
+    const rel = `${slug(params.name)}.${slug(shot.name)}.stepdiff.png`;
+    const d = diffPngs(approved, join(params.outDir, shot.path), join(params.outDir, rel), params.threshold ?? 0.1);
+    out.push({
+      name: shot.name,
+      mismatchPercent: d.mismatchPercent,
+      diff: rel,
+      verdict: stepDiffVerdict(true, true, d.mismatchPercent, params.maxMismatch),
+    });
+  }
+  for (const name of Object.keys(params.approvedSteps)) {
+    if (!seen.has(name)) out.push({ name, mismatchPercent: 0, verdict: "missing" });
+  }
+  return out;
 }

@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { PNG } from "pngjs";
-import { diffPngs, diffWithRegions } from "./diff";
+import { diffPngs, diffShots, diffWithRegions } from "./diff";
 
 let dir: string;
 
@@ -110,5 +110,46 @@ describe("diffWithRegions", () => {
     });
     expect(res.regions[0].verdict).toBe("fail");
     expect(res.regions[0].reason).toBe("geometry");
+  });
+});
+
+describe("diffShots", () => {
+  it("diffs matched shots, flags new and missing ones", () => {
+    const approvedPath = writePng("approved-01.png", solid(50, 50, 255, 0, 0));
+    const samePath = writePng("run-01.png", solid(50, 50, 255, 0, 0));
+    const outDir = dirname(samePath);
+
+    const diffs = diffShots({
+      shots: [
+        { name: "01-open", path: basename(samePath) },
+        { name: "02-added", path: basename(samePath) },
+      ],
+      approvedSteps: { "01-open": approvedPath, "03-gone": approvedPath },
+      outDir,
+      name: "page",
+    });
+
+    const byName = new Map(diffs.map((d) => [d.name, d]));
+    expect(byName.get("01-open")!.verdict).toBe("ok");
+    expect(byName.get("01-open")!.mismatchPercent).toBe(0);
+    expect(byName.get("01-open")!.diff).toBe("page.01-open.stepdiff.png");
+    expect(existsSync(join(outDir, "page.01-open.stepdiff.png"))).toBe(true);
+    expect(byName.get("02-added")!.verdict).toBe("new");
+    expect(byName.get("02-added")!.diff).toBeUndefined();
+    expect(byName.get("03-gone")!.verdict).toBe("missing");
+  });
+
+  it("applies maxMismatch to matched shots", () => {
+    const approvedPath = writePng("approved-red.png", solid(50, 50, 255, 0, 0));
+    const bluePath = writePng("run-blue.png", solid(50, 50, 0, 0, 255));
+    const diffs = diffShots({
+      shots: [{ name: "01-open", path: basename(bluePath) }],
+      approvedSteps: { "01-open": approvedPath },
+      outDir: dirname(bluePath),
+      name: "page",
+      maxMismatch: 5,
+    });
+    expect(diffs[0].verdict).toBe("mismatch");
+    expect(diffs[0].mismatchPercent).toBeGreaterThan(5);
   });
 });
