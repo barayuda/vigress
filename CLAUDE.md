@@ -21,6 +21,9 @@ bun run src/cli.ts login --url <url> --state auth.state.json --check  # validate
 bun run src/cli.ts --config <page>.fullcheck.json --state auth.state.json --json   # batch mode
 bun run src/cli.ts init-config <page> --target <url> --against <ref>  # scaffold a fullcheck config (placeholders, no browser)
 bun run src/cli.ts discover <page> --target <url> --against <ref>     # generate a fullcheck config from the live DOM (read-only crawl)
+bun run src/cli.ts approve <name> [--run <dir>]                       # bless a run's captures as the approved baseline
+bun run src/cli.ts approve --all [--run <dir>]                        # bless every entry in a run (batch configs)
+bun run src/cli.ts --config <page>.fullcheck.json --update-baseline   # run normally then auto-approve all results
 ```
 
 There is no browser-based integration test suite — the capture/diff/video pipeline is verified by running a real comparison and opening `out/<timestamp>/report.html`.
@@ -45,7 +48,7 @@ Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `au
 
 ### The JSON contract (three places to keep in sync)
 
-`SCHEMA_VERSION` lives in `src/types.ts` (currently **6**). `summary.json` uses paths relative to `outDir`; the `--json` stdout payload is the same shape with **absolute** paths (built in `json.ts`). When you change the output shape (including adding a step-action enum value):
+`SCHEMA_VERSION` lives in `src/types.ts` (currently **7**). `summary.json` uses paths relative to `outDir`; the `--json` stdout payload is the same shape with **absolute** paths (built in `json.ts`). When you change the output shape (including adding a step-action enum value):
 
 1. Bump `SCHEMA_VERSION` in `src/types.ts`.
 2. Update the README's schema docs (it has drifted before).
@@ -58,6 +61,7 @@ Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `au
 - Region/mask selectors are per-side: `target` / `baseline` selectors → shared `selector` → raw `clip` fallback. Regions may opt into computed-style diffing via `style` (handled in `style.ts`); masks never do.
 - Selector-resolved region/mask boxes are translated into the screenshot's coordinate space via `boxInCapture` in `regions.ts` (handles `--clip` offsets; fully-outside boxes → `unresolved`). Raw `clip` regions/masks pass through untranslated — they're authored against the final screenshot.
 - Steps can `assert` outcomes (`state`/`text`/`urlContains`) — the difference between "the selector resolved" and "the control actually worked". `assert` is always a `check: true` step.
+- `against: "baseline:<name>"` (config) or `--against baseline:<name>` (CLI) diffs against an approved capture stored in `baselines/manifest.json`. The manifest is git-tracked; paths in it are relative to the repo root and point into `out/` (no copying). Baselines are per-machine until remote storage exists.
 - Env vars (Bun auto-loads `.env`; flags always win): `FIGMA_TOKEN`, `VIGRESS_OUT`, `VIGRESS_STATE`, `VIGRESS_VIEWPORT`, `VIGRESS_SETTLE` (networkidle cap, default 8000ms — SPAs with persistent sockets never reach networkidle), `VIGRESS_DWELL` (pause after each step for video legibility, default 1000ms).
 
 ### Behaviors that look wrong but are deliberate
@@ -71,3 +75,5 @@ Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `au
 - `auth.state.json` holds live credentials; `*.state.json` is git-ignored — never commit or print its contents.
 - Figma baselines export at `scale=1` (`figmaImageApiUrl`) — the target is captured at `deviceScaleFactor: 1`, and the diff crops to the common top-left, so a 2× export would silently compare a quarter of the design.
 - `discover` is strictly read-only against the live DOM (never clicks/types); the config it emits is a heuristic starting point, and `init-config` refuses to overwrite an existing fullcheck file.
+- `approve` is manifest-only — artifacts stay in place under `out/` (no copying). This makes the approved run dir precious: **deleting an `out/<timestamp>/` dir that was approved breaks the baseline** until re-approved. The `.approved` marker file in the run dir is informational; the manifest is the contract.
+- `new` step-diff verdicts (a step added to the run since approval) **never trip any gate** by design — adding a step must not break CI until re-approval. Only `missing` (an approved step absent from the run) trips `--require-steps`.

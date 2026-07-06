@@ -24,6 +24,7 @@ to any application repo.
 - [Authentication (logged-in pages)](#authentication-logged-in-pages)
 - [CLI reference](#cli-reference)
 - [Baselines](#baselines)
+- [Baseline snapshots (self-regression)](#baseline-snapshots-self-regression)
 - [Batch mode (`--config`)](#batch-mode---config)
 - [Regions & masks](#regions--masks)
 - [Interaction steps & auto-explore](#interaction-steps--auto-explore)
@@ -46,8 +47,9 @@ to any application repo.
   route) against the old app on staging.
 - **Redesign / design QA** — compare an implemented page against a design export
   (a PNG from Figma, or a Figma frame fetched live).
-- **Self-baseline regression** — save a known-good screenshot as a baseline image
-  and re-diff future builds against it.
+- **Self-baseline regression** — bless an approved run's capture as the golden
+  baseline (`vigress approve` / `--update-baseline`), then diff future builds
+  against that snapshot using `baseline:<name>` refs.
 
 Three things make `vigress` general: the target and baseline are **arguments**
 (no hardcoded routes), it produces **both** a human report and an agent JSON
@@ -162,6 +164,8 @@ bun run src/cli.ts [--target <url> --against <ref>] [options]
 bun run src/cli.ts login --url <url> --state <path> [--check]
 bun run src/cli.ts init-config <page> --target <url> --against <ref> [--viewport WxH]
 bun run src/cli.ts discover <page> --target <url> --against <url> [--viewport WxH] [--state f] [--max-steps n]
+bun run src/cli.ts approve <name> [--run <dir>]
+bun run src/cli.ts approve --all [--run <dir>]
 bun run src/cli.ts --config <file.json> [options]
 ```
 
@@ -190,11 +194,16 @@ bun run src/cli.ts --config <file.json> [options]
 | `--url` | string | — | (login only) the URL to open for sign-in. |
 | `--check` | boolean | — | (login only) validate the saved session headlessly instead of signing in — exit `0` logged in, `1` expired. |
 | `--max-steps` | number | `20` | (discover only) cap on generated click+screenshot step pairs. |
+| `--update-baseline` | boolean | — | After the run completes, approve all results into `baselines/manifest.json`. If a `baseline:<name>` ref has no manifest entry yet, that run is a bootstrap: diff phase skipped, then approved. Applies to all entries in batch mode. |
+| `--run` | path | — | (approve only) bless from a specific run directory instead of auto-finding the newest. |
+| `--all` | boolean | — | (approve only) bless every entry in the run, not just the named one. |
 
 **Subcommands:**
 - `login` — opens a headed browser to capture a `storageState`; with `--check`, validates an existing session headlessly.
 - `init-config <page>` — scaffolds `<page>.fullcheck.json` with `REPLACE-*` placeholders (no browser).
 - `discover <page>` — crawls the live `--target` DOM (read-only) and writes a run-ready `<page>.fullcheck.json`.
+- `approve <name> [--run <dir>]` — blesses a run's target capture and named step shots into `baselines/manifest.json`. Auto-finds the newest run containing `<name>` unless `--run` is given.
+- `approve --all [--run <dir>]` — blesses every entry in the run (for batch configs).
 
 **Exit codes:** `0` success · `1` a gate tripped (`--max-mismatch`,
 `--require-steps`, `--require-style`) or an unexpected error · `2` usage error
@@ -211,6 +220,7 @@ The baseline is whatever you pass to `--against`. Its type is **auto-detected**:
 | `http://…` / `https://…` | `url` | Captured live in the browser (uses `--state`, `--viewport`, `--clip`). |
 | ends in a path / not a URL, e.g. `./design/x.png` | `image` | Local file copied as the baseline; an `http(s)` image URL is downloaded. |
 | `figma:FILEKEY/NODEID` | `figma` | Exported as PNG via the Figma REST API (needs `FIGMA_TOKEN`). |
+| `baseline:<name>` | `baseline` | Diffs against the approved capture stored in `baselines/manifest.json`. See [Baseline snapshots](#baseline-snapshots-self-regression). |
 
 Override detection with `--against-type` if needed (single-run only). All
 baselines are normalized to a PNG, then diffed against the target capture.
@@ -220,6 +230,111 @@ top-left region before diffing.
 **Getting a Figma ref:** in Figma, the URL of a selected frame looks like
 `…/file/AbC123FileKey/…?node-id=12-345`. Use `figma:AbC123FileKey/12:345` (the
 node id uses a colon).
+
+---
+
+## Baseline snapshots (self-regression)
+
+Beyond parity checks (target vs staging/Figma), `vigress` supports **self-regression**: bless a known-good run as the approved baseline, then diff every future run against that snapshot.
+
+### Approving a baseline
+
+After a satisfactory run, bless it:
+
+```bash
+# Bless by name (auto-finds the newest run containing it)
+bun run src/cli.ts approve contact
+
+# Bless a specific run directory
+bun run src/cli.ts approve contact --run out/2026-07-06_15-11-50
+
+# Bless every entry in the newest run (for batch configs)
+bun run src/cli.ts approve --all
+```
+
+`approve` writes `baselines/manifest.json` (git-tracked) and drops a `.approved`
+marker file in the run dir. Artifacts stay in place — **no copying**. The manifest
+points at the approved `out/<timestamp>/` dir, which makes that directory precious:
+deleting it breaks the baseline until re-approved.
+
+### Using a baseline ref
+
+```json
+{ "name": "contact", "target": "https://localhost:3000/contact", "against": "baseline:contact" }
+```
+
+Or on the CLI: `--against baseline:contact`.
+
+Guards: if no manifest entry exists → exit 2 ("bootstrap with --update-baseline");
+if artifact files are missing → exit 1 ("re-approve or run with --update-baseline");
+if the run viewport differs from the approved viewport → exit 2.
+
+### Bootstrap / `--update-baseline`
+
+Skip the `approve` step and let the run approve itself:
+
+```bash
+bun run src/cli.ts --config contact.fullcheck.json --update-baseline
+```
+
+- Runs normally, then approves all results.
+- If a `baseline:<name>` ref has no manifest entry yet, that run is a **bootstrap**: the diff phase is skipped (nothing to diff against), everything is captured, and then approved. Subsequent runs diff normally.
+- In batch mode, `--update-baseline` applies to every entry — including url/figma parity entries. This is the intended bridge: check the page against staging/Figma, bless that exact state, then guard it with a `baseline:` run going forward.
+
+### The manifest
+
+```
+baselines/
+  manifest.json    # git-tracked; commit this to share with teammates
+```
+
+```json
+{
+  "schemaVersion": 1,
+  "baselines": {
+    "contact": {
+      "storage": "local",
+      "approvedAt": "2026-07-06T15:11:50Z",
+      "approvedFrom": "out/2026-07-06_15-11-50",
+      "viewport": { "width": 1440, "height": 900 },
+      "sourceUrl": "https://localhost:3000/contact",
+      "artifacts": {
+        "main": "out/2026-07-06_15-11-50/contact.target.png",
+        "steps": {
+          "date-open": "out/2026-07-06_15-11-50/contact.date-open.png"
+        }
+      }
+    }
+  }
+}
+```
+
+Paths are relative to the repo root. The manifest is committed to git; `out/`
+remains git-ignored. **Baselines are per-machine** until remote storage is
+available — a fresh clone or CI runner must bootstrap with `--update-baseline`.
+
+### Step diffing
+
+When a `baseline:` run has approved step shots, `vigress` diffs each named
+screenshot step against its approved counterpart and adds `stepDiffs[]` to the
+run result:
+
+| Verdict | Condition | Gate impact |
+|---------|-----------|-------------|
+| `ok` | Step in run and manifest, within threshold | none |
+| `mismatch` | Step in run and manifest, over `--max-mismatch` | trips `--max-mismatch` |
+| `new` | Step in run, not in manifest (newly added step) | **never gates** |
+| `missing` | Step in manifest, not in run (step removed or failed) | trips `--require-steps` |
+
+The `mismatch` verdict counts toward `--max-mismatch`'s worst-of. Adding a step
+never trips a gate until re-approval; a promised state that disappeared is a real
+failure.
+
+### Parity → bless → regression workflow
+
+1. **Parity check:** run against staging/Figma to verify the page matches the reference.
+2. **Bless:** once satisfied, `approve` that run (or re-run with `--update-baseline`).
+3. **Regression:** change the config's `against` to `baseline:<name>` (or use a separate baseline config). Future commits diff against the approved state.
 
 ---
 
@@ -444,11 +559,12 @@ functionality: X/Y checks passed
 
 where `X` is the count of `ok` check-steps and `Y` is the total check-steps.
 
-### New outputs (schemaVersion 6)
+### New outputs (schemaVersion 6 / 7)
 
-`summary.json` and the `--json` payload are now **`schemaVersion: 6`** (v5
-added `regions[].styleDiff`; v6 added the `assert` step action). Each run
-entry adds:
+`summary.json` and the `--json` payload are **`schemaVersion: 7`** (v5
+added `regions[].styleDiff`; v6 added the `assert` step action; v7 added
+`targetUrl`, `stepDiffs`, `bootstrap`, and made `baseline`/`diff`/mismatch
+fields optional). Each run entry adds:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -483,7 +599,7 @@ video. It references the artifacts by relative path, so open it directly
 **`summary.json`** (artifact paths are **relative** to `outDir`):
 ```json
 {
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "outDir": "/abs/path/out",
   "reportHtml": "report.html",
   "summaryJson": "summary.json",
@@ -495,6 +611,7 @@ video. It references the artifacts by relative path, so open it directly
       "mismatchPixels": 12345,
       "mismatchPercent": 4.2,
       "target": "contact.target.png",
+      "targetUrl": "https://localhost:3000/contact",
       "baseline": "contact.baseline.png",
       "diff": "contact.diff.png",
       "video": "video/abc.webm",
@@ -504,11 +621,16 @@ video. It references the artifacts by relative path, so open it directly
         { "index": 1, "action": "click", "selector": "[data-testid=period-input]", "check": true, "status": "ok" },
         { "index": 2, "action": "screenshot", "check": false, "status": "ok" },
         { "index": 3, "action": "press", "check": false, "status": "ok" }
+      ],
+      "stepDiffs": [
+        { "name": "date-open", "mismatchPercent": 0.1, "diff": "contact.date-open.stepdiff.png", "verdict": "ok" }
       ]
     }
   ]
 }
 ```
+
+**v7 schema changes** (from v6): each `RunResult` gains `targetUrl` (string — the captured URL, used by `approve` to record `sourceUrl` in the manifest) and `stepDiffs` (array of `{ name, mismatchPercent, diff?, verdict: "ok"|"mismatch"|"new"|"missing" }` — step screenshot regressions against an approved `baseline:` run). `bootstrap?: true` marks a first approval run (no prior baseline to diff against). On bootstrap runs, `baseline`, `diff`, `mismatchPixels`, and `mismatchPercent` are absent (they are optional from v7 onward).
 
 ---
 
@@ -521,14 +643,16 @@ shape as `summary.json` but with **absolute** artifact paths, ready to read:
 bun run src/cli.ts --target … --against … --state auth.state.json --json --quiet
 ```
 ```json
-{ "schemaVersion": 6, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
+{ "schemaVersion": 7, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
   "summaryJson": "/abs/out/summary.json",
   "runs": [ { "name": "contact", "baselineType": "url", "viewport": {"width":1440,"height":900},
               "mismatchPixels": 12345, "mismatchPercent": 4.2,
-              "target": "/abs/out/contact.target.png", "baseline": "/abs/out/contact.baseline.png",
+              "target": "/abs/out/contact.target.png", "targetUrl": "https://localhost:3000/contact",
+              "baseline": "/abs/out/contact.baseline.png",
               "diff": "/abs/out/contact.diff.png", "video": "/abs/out/video/abc.webm",
               "mode": "steps", "shots": [],
-              "steps": [{"index":1,"action":"click","selector":"[data-testid=x]","check":true,"status":"ok"}] } ] }
+              "steps": [{"index":1,"action":"click","selector":"[data-testid=x]","check":true,"status":"ok"}],
+              "stepDiffs": [{"name":"date-open","mismatchPercent":0.1,"diff":"/abs/out/contact.date-open.stepdiff.png","verdict":"ok"}] } ] }
 ```
 
 An agent can parse this, **read** the `diff` PNG to inspect changes, open
@@ -589,8 +713,14 @@ bun run src/cli.ts --target https://localhost:3000/pricing --against ./design/pr
 # Design QA: page vs a live Figma frame
 FIGMA_TOKEN=figd_xxx bun run src/cli.ts --target https://localhost:3000/pricing --against figma:KEY/12:345
 
-# Self-baseline regression: save today's render, diff future builds against it
-bun run src/cli.ts --target https://localhost:3000/home --against ./baselines/home.png --name home
+# Baseline snapshot: bootstrap (first approval)
+bun run src/cli.ts --config contact.fullcheck.json --state auth.state.json --update-baseline
+
+# Baseline snapshot: re-run against the approved state (regression check)
+bun run src/cli.ts --config contact.fullcheck.json --state auth.state.json --json --max-mismatch 2
+
+# Bless a specific named run after review
+bun run src/cli.ts approve contact --run out/2026-07-06_15-11-50
 
 # Batch, machine-readable, gated at 5%
 bun run src/cli.ts --config comparisons.json --state auth.state.json --json --max-mismatch 5

@@ -16,7 +16,7 @@ agents) a JSON payload. No deps in any app repo; uses system Chrome.
 cd <workspace>/vigress
 bun install                              # first time
 bun run src/cli.ts login --url <app-url> --state auth.state.json   # if login needed
-bun run src/cli.ts --target <url> --against <url|img.png|figma:KEY/NODE> \
+bun run src/cli.ts --target <url> --against <url|img.png|figma:KEY/NODE|baseline:<name>> \
   --state auth.state.json --out out --json
 ```
 
@@ -45,19 +45,28 @@ Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
 
 ## Baselines (auto-detected from `--against`)
 - `https://…` → capture that URL  ·  `./file.png` → use that image  ·
-  `figma:FILEKEY/NODEID` → Figma REST export (needs `FIGMA_TOKEN`).
+  `figma:FILEKEY/NODEID` → Figma REST export (needs `FIGMA_TOKEN`)  ·
+  `baseline:<name>` → approved capture from `baselines/manifest.json`
+  (see "Baseline snapshots" below).
 
 ## Batch
 `bun run src/cli.ts --config comparisons.json` where the file is
 `[{ "name","target","against","clip?","viewport?" }, …]`.
 
 ## For AI agents
-- Pass `--json`: stdout is a single object `{ schemaVersion: 6, outDir, reportHtml,
-  runs:[{ name, mismatchPercent, target, baseline, diff, video, mode, shots:[],
-  steps:[{index,action,selector?,check,status,error?}],
+- Pass `--json`: stdout is a single object `{ schemaVersion: 7, outDir, reportHtml,
+  runs:[{ name, baselineType, viewport, mismatchPixels?, mismatchPercent?,
+  target, targetUrl, baseline?, diff?, video?, bootstrap?,
+  mode, shots:[], steps:[{index,action,selector?,check,status,error?}],
+  stepDiffs:[{name,mismatchPercent,diff?,verdict:"ok"|"mismatch"|"new"|"missing"}],
   regions:[{name,mismatchPercent,verdict,reason,diff,styleDiff?:[{property,target,baseline,match}]}],
   checklist:[{aspect,region,verdict,workaround}] }] }` with absolute
   paths — Read the `diff` PNG; open `reportHtml` for the human view.
+- On bootstrap runs (`bootstrap: true`), `baseline`, `diff`, `mismatchPixels`,
+  and `mismatchPercent` are absent — the run captured and approved but had nothing
+  to diff against.
+- `stepDiffs[]` is populated only for `baseline:` runs with approved step shots.
+  `new` verdicts (steps added since approval) never trip any gate.
 - Each run writes to a **timestamped subfolder** — always take artifact paths
   from the JSON payload (`outDir` etc.), never assume `out/` directly.
 - Exit codes: `0` ok · `1` a gate tripped (`--max-mismatch`, `--require-steps`,
@@ -220,9 +229,9 @@ CLI form: `--step "action=assert;selector=[role=dialog];state=visible"`.
 
 ### Per-step pass/fail results
 
-Each step reports a result. `summary.json` and `--json` are **schemaVersion 6**
-and include `mode`, `shots[]`, and `steps[]` on each run entry. The `steps[]`
-shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
+Each step reports a result. `summary.json` and `--json` are **schemaVersion 7**
+and include `mode`, `shots[]`, `steps[]`, and `stepDiffs[]` on each run entry.
+The `steps[]` shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
 
 - `check: true` for selector-dependent actions (`click`, `fill`, `select`,
   `hover`; `press`/`scroll`/`waitFor` when a `selector` is given) and always
@@ -338,6 +347,61 @@ order (not necessarily the order a human would test filters in), and the
 nth-of-type fallback selector is brittle if the DOM shifts. Always review the
 generated config before trusting a run's `--require-steps`/`--require-style`
 gate on it.
+
+## Baseline snapshots (self-regression)
+
+Beyond parity checks (target vs staging/Figma), `vigress` supports **self-regression**:
+bless a known-good run as the approved baseline, then diff future runs against that snapshot.
+
+### Approve a baseline
+
+```bash
+# After a satisfactory run
+bun run src/cli.ts approve <name>              # auto-finds newest run containing <name>
+bun run src/cli.ts approve <name> --run <dir>  # from a specific run dir
+bun run src/cli.ts approve --all               # bless every entry in the newest run
+```
+
+`approve` writes `baselines/manifest.json` (git-tracked; commit it). Artifacts stay in place
+under `out/` — no copying. The approved run dir becomes precious: deleting it breaks the
+baseline until re-approved.
+
+### Use a baseline ref
+
+In a config entry: `"against": "baseline:<name>"` (or `--against baseline:<name>` on the CLI).
+Guards: no manifest entry → exit 2 ("bootstrap with --update-baseline"); artifact files missing →
+exit 1 ("re-approve or run with --update-baseline"); viewport mismatch vs manifest → exit 2.
+
+### Bootstrap / `--update-baseline`
+
+```bash
+bun run src/cli.ts --config <page>.fullcheck.json --update-baseline
+```
+
+Runs normally, then approves all results. If a `baseline:<name>` ref has no manifest entry yet,
+that run is a **bootstrap**: diff phase skipped, captured and approved, `bootstrap: true` in the
+result. Second run onward diffs normally. Applies to all entries in batch mode.
+
+### Step-diff verdicts
+
+When a `baseline:` run has approved step shots, each named screenshot step is diffed against
+its counterpart → `stepDiffs[]`:
+
+| Verdict | Condition | Gate impact |
+|---------|-----------|-------------|
+| `ok` | Step in run and manifest, within threshold | none |
+| `mismatch` | Step in run and manifest, over `--max-mismatch` | trips `--max-mismatch` |
+| `new` | Step in run, not in manifest (newly added) | **never gates** |
+| `missing` | Step in manifest, not in run (removed/failed) | trips `--require-steps` |
+
+`mismatch` % counts toward `--max-mismatch`'s worst-of. Adding a step never breaks CI
+until re-approval.
+
+### Parity → bless → regression
+
+1. Run against staging/Figma to verify parity.
+2. Bless that run: `approve <name>` (or re-run with `--update-baseline`).
+3. Change `against` to `baseline:<name>`. Future runs diff against the approved state.
 
 ## Regression workflow
 

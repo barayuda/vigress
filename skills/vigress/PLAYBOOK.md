@@ -116,3 +116,48 @@ the page has animation or the auto-explore triggers noise).
 | `networkidle` never settles — MQTT/long-poll connections keep the network busy | `vigress` proceeds after a timeout; this is expected behavior. The capture is taken after the page-load timeout, not strictly at networkidle. No action needed; note it in the run context. |
 | Font anti-aliasing/sub-pixel rendering differs between environments | Set a per-region `maxMismatch` tolerance (e.g. `"maxMismatch": 1`) rather than 0. A threshold of 0 will fail on any sub-pixel AA difference. |
 | Scrollbar width differs between OS/browser (adds ~15px to layout) | Use `clip` to stay inside the content area and exclude the scrollbar gutter, or add a mask targeting the scrollbar region. |
+
+---
+
+## Parity → bless → regression
+
+After a successful parity check (target vs staging/Figma), switch to self-regression
+to guard against future regressions without re-comparing to the original reference.
+
+### 1 — Parity check
+
+Run the full check against the reference (staging URL or Figma baseline) and confirm
+all regions and steps pass to your satisfaction.
+
+### 2 — Bless the run
+
+```bash
+# Approve by name (auto-finds the newest run)
+bun run src/cli.ts approve <name>
+
+# Or bootstrap via --update-baseline (no separate approve step needed)
+bun run src/cli.ts --config <page>.fullcheck.json --state auth.state.json --update-baseline
+```
+
+`approve` writes `baselines/manifest.json` — commit it. The approved `out/<timestamp>/`
+dir must not be deleted (it holds the artifacts the manifest points at).
+
+### 3 — Regression config
+
+Change `against` to `baseline:<name>` in the config (or use a separate regression config):
+
+```json
+{ "name": "contact", "target": "https://app.example.com/contact", "against": "baseline:contact" }
+```
+
+Run with gates: `--max-mismatch 2 --require-steps`. Step diffs against approved screenshots
+populate `stepDiffs[]` — `new` verdicts never trip gates; `missing` trips `--require-steps`.
+
+### Step-diff verdict matrix
+
+| Verdict | Condition | Gate |
+|---------|-----------|------|
+| `ok` | Step in run and manifest, within `--max-mismatch` | none |
+| `mismatch` | Step over `--max-mismatch` | trips `--max-mismatch` |
+| `new` | Step added since approval | **never gates** |
+| `missing` | Approved step absent from run | trips `--require-steps` |
