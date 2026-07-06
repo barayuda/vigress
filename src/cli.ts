@@ -3,19 +3,19 @@ import { mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync, statSy
 import { join, resolve, relative, dirname } from "node:path";
 import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, buildManifestEntry, upsertBaseline, pickNewestRun, parseBaselineRef, resolveBaselineArtifacts, type RunDirCandidate, type ManifestEntry } from "./baselines";
 import type { BrowserContext } from "playwright";
-import { buildRunConfig, buildScaffoldConfig, scaffoldPlaceholders, parseViewport, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem } from "./config";
+import { buildRunConfig, buildScaffoldConfig, scaffoldPlaceholders, parseViewport, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem, type Box } from "./config";
 import { runSteps, autoExplore, stepSummary } from "./steps";
 import { resolveBoxes, type BoxItem } from "./regions";
-import { diffWithRegions, type RegionInput } from "./diff";
+import { diffWithRegions, diffShots, type RegionInput } from "./diff";
 import { launchBrowser } from "./browser";
 import { capturePage } from "./capture";
-import { resolveBaseline } from "./sources";
+import { resolveBaseline, imageSource } from "./sources";
 import { storageStateOption, runLogin, checkSession, looksLikeLoginRedirect } from "./auth";
 import { writeReport } from "./report";
 import { buildJsonPayload } from "./json";
-import { resolveStyles, styleProps, diffStyleValues, type StyleItem } from "./style";
+import { resolveStyles, styleProps, diffStyleValues, type StyleItem, type StyleValues } from "./style";
 import { extractCandidates, gotoAndSettle, isSafeCandidate, dedupeCandidates, clusterBoxesIntoRegions, buildDiscoveredConfig } from "./discover";
-import { SCHEMA_VERSION, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type Summary } from "./types";
+import { SCHEMA_VERSION, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type StepDiff, type Summary } from "./types";
 
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
@@ -298,6 +298,35 @@ async function main(): Promise<number> {
   mkdirSync(outDir, { recursive: true });
   mkdirSync(videoDir, { recursive: true });
 
+  // Resolve baseline: refs up front — pure guards, no browser needed, fail fast.
+  const manifestFile = resolve(MANIFEST_PATH);
+  const manifest = existsSync(manifestFile) ? parseManifest(readFileSync(manifestFile, "utf8")) : null;
+  const approvedByRun = new Map<string, ManifestEntry>();
+  const bootstrapRuns = new Set<string>();
+  for (const spec of runs) {
+    if (spec.baselineType !== "baseline") continue;
+    const refName = parseBaselineRef(spec.against);
+    if (!refName) {
+      process.stderr.write(`vigress: invalid baseline ref '${spec.against}' — expected baseline:<name>\n`);
+      return 2;
+    }
+    const res = resolveBaselineArtifacts(manifest, refName, spec.viewport);
+    if (!res.ok) {
+      if (res.missingEntry && opts.updateBaseline) {
+        // First run for this name: capture + approve, skip diffing (bootstrap).
+        bootstrapRuns.add(spec.name);
+        continue;
+      }
+      process.stderr.write(`vigress: ${res.message}\n`);
+      return res.code;
+    }
+    if (!existsSync(res.entry.artifacts.main)) {
+      process.stderr.write(`vigress: approved baseline artifacts missing for '${refName}' (${res.entry.artifacts.main} deleted?) — re-approve or run with --update-baseline\n`);
+      return 1;
+    }
+    approvedByRun.set(spec.name, res.entry);
+  }
+
   const browser = await launchBrowser();
   const results: RunResult[] = [];
   try {
@@ -354,51 +383,63 @@ async function main(): Promise<number> {
       }
       const targetBoxes = await resolveBoxes(page, targetItems, captureRect);
       const targetStyles = await resolveStyles(page, targetStyleItems);
-      const { boxes: baselineBoxes, styles: baselineStyles } = await resolveBaseline(
-        spec,
-        ctx,
-        join(outDir, baselineRel),
-        process.env,
-        baselineItems,
-        baselineStyleItems,
-        opts.statePath,
-      );
 
-      // image/figma baselines resolve no DOM boxes → fall back to the region's clip.
-      const regionInputs: RegionInput[] = specRegions.map((r) => ({
-        name: r.name,
-        targetBox: targetBoxes[`r:${r.name}`] ?? r.clip ?? null,
-        baselineBox: baselineBoxes[`r:${r.name}`] ?? r.clip ?? null,
-        maxMismatch: r.maxMismatch,
-      }));
-      const styleDiffByRegion = new Map(
-        styledRegions.map(({ region, props }) => [
-          region.name,
-          diffStyleValues(targetStyles[`r:${region.name}`] ?? null, baselineStyles[`r:${region.name}`] ?? null, props),
-        ]),
-      );
-      const targetMaskBoxes = specMasks
-        .map((m, i) => targetBoxes[`m:${i}`] ?? m.clip ?? null)
-        .filter((b): b is NonNullable<typeof b> => b !== null);
-      const baselineMaskBoxes = specMasks
-        .map((m, i) => baselineBoxes[`m:${i}`] ?? m.clip ?? null)
-        .filter((b): b is NonNullable<typeof b> => b !== null);
+      const isBootstrap = bootstrapRuns.has(spec.name);
+      const approved = approvedByRun.get(spec.name);
 
-      const { full, regions: diffedRegions } = diffWithRegions({
-        targetPath: join(outDir, targetRel),
-        baselinePath: join(outDir, baselineRel),
-        diffPath: join(outDir, diffRel),
-        outDir,
-        name: spec.name,
-        targetMaskBoxes,
-        baselineMaskBoxes,
-        regions: regionInputs,
-        threshold: opts.threshold,
-      });
-      const regions: RegionScore[] = diffedRegions.map((r) => {
-        const styleDiff = styleDiffByRegion.get(r.name);
-        return styleDiff ? { ...r, styleDiff } : r;
-      });
+      let full: { mismatchPixels: number; mismatchPercent: number } | undefined;
+      let regions: RegionScore[] = [];
+      if (!isBootstrap) {
+        let baselineBoxes: Record<string, Box | null> = {};
+        let baselineStyles: Record<string, StyleValues> = {};
+        if (spec.baselineType === "baseline") {
+          // Approved image baseline: no DOM to probe, like image/figma.
+          await imageSource(approved!.artifacts.main, join(outDir, baselineRel));
+        } else {
+          const resolved = await resolveBaseline(
+            spec, ctx, join(outDir, baselineRel), process.env, baselineItems, baselineStyleItems, opts.statePath,
+          );
+          baselineBoxes = resolved.boxes;
+          baselineStyles = resolved.styles;
+        }
+
+        // image/figma/baseline baselines resolve no DOM boxes → fall back to the region's clip.
+        const regionInputs: RegionInput[] = specRegions.map((r) => ({
+          name: r.name,
+          targetBox: targetBoxes[`r:${r.name}`] ?? r.clip ?? null,
+          baselineBox: baselineBoxes[`r:${r.name}`] ?? r.clip ?? null,
+          maxMismatch: r.maxMismatch,
+        }));
+        const styleDiffByRegion = new Map(
+          styledRegions.map(({ region, props }) => [
+            region.name,
+            diffStyleValues(targetStyles[`r:${region.name}`] ?? null, baselineStyles[`r:${region.name}`] ?? null, props),
+          ]),
+        );
+        const targetMaskBoxes = specMasks
+          .map((m, i) => targetBoxes[`m:${i}`] ?? m.clip ?? null)
+          .filter((b): b is NonNullable<typeof b> => b !== null);
+        const baselineMaskBoxes = specMasks
+          .map((m, i) => baselineBoxes[`m:${i}`] ?? m.clip ?? null)
+          .filter((b): b is NonNullable<typeof b> => b !== null);
+
+        const d = diffWithRegions({
+          targetPath: join(outDir, targetRel),
+          baselinePath: join(outDir, baselineRel),
+          diffPath: join(outDir, diffRel),
+          outDir,
+          name: spec.name,
+          targetMaskBoxes,
+          baselineMaskBoxes,
+          regions: regionInputs,
+          threshold: opts.threshold,
+        });
+        full = d.full;
+        regions = d.regions.map((r) => {
+          const styleDiff = styleDiffByRegion.get(r.name);
+          return styleDiff ? { ...r, styleDiff } : r;
+        });
+      }
 
       // Interaction (target only), after the clean screenshot + diff so parity is unaffected.
       const mode: RunMode = values["no-steps"] === true ? "static" : (spec.steps?.length ? "steps" : "explore");
@@ -410,6 +451,19 @@ async function main(): Promise<number> {
         stepResults = r.results;
       } else if (mode === "explore") {
         await autoExplore(page);
+      }
+
+      // Step-state regression: only meaningful against an approved baseline.
+      let stepDiffs: StepDiff[] = [];
+      if (approved) {
+        stepDiffs = diffShots({
+          shots,
+          approvedSteps: approved.artifacts.steps,
+          outDir,
+          name: spec.name,
+          threshold: opts.threshold,
+          maxMismatch: opts.maxMismatch,
+        });
       }
 
       const videoHandle = spec.video ? page.video() : undefined;
@@ -424,25 +478,28 @@ async function main(): Promise<number> {
         name: spec.name,
         baselineType: spec.baselineType,
         viewport: spec.viewport,
-        mismatchPixels: full.mismatchPixels,
-        mismatchPercent: full.mismatchPercent,
+        mismatchPixels: full?.mismatchPixels,
+        mismatchPercent: full?.mismatchPercent,
         target: targetRel,
         targetUrl: spec.target,
-        baseline: baselineRel,
-        diff: diffRel,
+        baseline: isBootstrap ? undefined : baselineRel,
+        diff: isBootstrap ? undefined : diffRel,
         video: videoRel,
+        bootstrap: isBootstrap ? true : undefined,
         regions,
         checklist,
         mode,
         shots,
         steps: stepResults,
-        stepDiffs: [],
+        stepDiffs,
       });
       const ss = stepSummary(stepResults);
       const stepsNote = mode === "steps" ? ` · steps ${ss.ok}/${ss.total} ok` : "";
       const styleMismatches = regions.reduce((n, r) => n + (r.styleDiff?.filter((s) => !s.match).length ?? 0), 0);
-      const styleNote = styleDiffByRegion.size ? ` · style ${styleMismatches} mismatch(es)` : "";
-      log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} mismatch ${full.mismatchPercent}% · ${mode}${stepsNote}${styleNote} · ${regions.length} region(s) -> ${diffRel}`);
+      const styleNote = regions.some((r) => r.styleDiff) ? ` · style ${styleMismatches} mismatch(es)` : "";
+      const pctNote = isBootstrap ? "bootstrap (new baseline)" : `mismatch ${full!.mismatchPercent}%`;
+      const stepDiffNote = stepDiffs.length ? ` · ${stepDiffs.filter((d) => d.verdict === "ok").length}/${stepDiffs.length} step diff(s) ok` : "";
+      log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} ${pctNote} · ${mode}${stepsNote}${styleNote}${stepDiffNote} · ${regions.length} region(s) -> ${isBootstrap ? targetRel : diffRel}`);
     }
   } finally {
     await browser.close();
@@ -457,6 +514,16 @@ async function main(): Promise<number> {
   };
   writeReport(summary);
 
+  if (opts.updateBaseline) {
+    let m = existsSync(manifestFile) ? parseManifest(readFileSync(manifestFile, "utf8")) : emptyManifest();
+    const runDirRel = relative(process.cwd(), outDir);
+    const approvedAt = new Date().toISOString();
+    for (const r of results) m = upsertBaseline(m, r.name, buildManifestEntry(r, runDirRel, approvedAt));
+    writeManifest(manifestFile, m);
+    writeFileSync(join(outDir, ".approved"), results.map((r) => r.name).join("\n") + "\n");
+    log(opts.quiet || opts.json, `baseline updated: ${results.map((r) => r.name).join(", ")}`);
+  }
+
   if (opts.json) {
     process.stdout.write(JSON.stringify(buildJsonPayload(summary)) + "\n");
   } else {
@@ -464,10 +531,16 @@ async function main(): Promise<number> {
   }
 
   if (opts.maxMismatch !== undefined) {
-    const worst = results.reduce((m, r) => Math.max(m, r.mismatchPercent), 0);
+    const worst = results.reduce(
+      (m, r) => Math.max(m, r.mismatchPercent ?? 0, ...r.stepDiffs.map((d) => d.mismatchPercent)),
+      0,
+    );
     if (worst > opts.maxMismatch) return 1;
   }
-  if (values["require-steps"] && results.some((r) => r.steps.some((s) => s.check && s.status === "failed"))) {
+  if (
+    values["require-steps"] &&
+    results.some((r) => r.steps.some((s) => s.check && s.status === "failed") || r.stepDiffs.some((d) => d.verdict === "missing"))
+  ) {
     return 1;
   }
   if (values["require-style"] && results.some((r) => r.regions.some((rg) => rg.styleDiff?.some((s) => !s.match)))) {
