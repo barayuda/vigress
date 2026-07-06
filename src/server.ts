@@ -20,8 +20,12 @@ function dirSizeBytes(dir: string): number {
   let total = 0;
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
-    if (e.isDirectory()) total += dirSizeBytes(p);
-    else if (e.isFile()) total += statSync(p).size;
+    try {
+      if (e.isDirectory()) total += dirSizeBytes(p);
+      else if (e.isFile()) total += statSync(p).size;
+    } catch {
+      // entry vanished mid-scan (concurrent delete) — count it as gone
+    }
   }
   return total;
 }
@@ -35,10 +39,10 @@ function scanRunDirs(o: DashboardOpts): RunDirInfo[] {
       let summary: Summary | null = null;
       try {
         const raw = JSON.parse(readFileSync(join(abs, "summary.json"), "utf8")) as Summary;
-        // Treat old schema summaries whose run entries lack steps/stepDiffs as unreadable
+        // Treat old schema summaries whose run entries lack steps/stepDiffs/regions as unreadable
         // so buildRunIndex doesn't crash iterating them.
         const hasRequiredFields = Array.isArray(raw.runs) && raw.runs.every(
-          (r) => Array.isArray(r.steps) && Array.isArray(r.stepDiffs),
+          (r) => Array.isArray(r.steps) && Array.isArray(r.stepDiffs) && Array.isArray(r.regions),
         );
         summary = hasRequiredFields ? raw : null;
       } catch {
