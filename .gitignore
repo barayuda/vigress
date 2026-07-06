@@ -9,3 +9,7 @@ out/
 .superpowers/
 smoke.regions.json
 contact.regions.json
+
+# Private per-project artifacts — never commit (app-specific URLs/selectors/specs)
+*.fullcheck.json
+docs/superpowers/
