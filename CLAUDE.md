@@ -17,6 +17,7 @@ bun test -t "pattern"                # filter by test name
 # Run the CLI
 bun run src/cli.ts --target <url> --against <url|img.png|figma:KEY/NODE> [--state auth.state.json] [--json]
 bun run src/cli.ts login --url <url> --state auth.state.json          # capture a session (headed Chrome, manual sign-in)
+bun run src/cli.ts login --url <url> --state auth.state.json --check  # validate a session non-interactively (exit 0/1)
 bun run src/cli.ts --config <page>.fullcheck.json --state auth.state.json --json   # batch mode
 bun run src/cli.ts init-config <page> --target <url> --against <ref>  # scaffold a fullcheck config (placeholders, no browser)
 bun run src/cli.ts discover <page> --target <url> --against <ref>     # generate a fullcheck config from the live DOM (read-only crawl)
