@@ -25,6 +25,7 @@ to any application repo.
 - [CLI reference](#cli-reference)
 - [Baselines](#baselines)
 - [Baseline snapshots (self-regression)](#baseline-snapshots-self-regression)
+- [Dashboard](#dashboard)
 - [Batch mode (`--config`)](#batch-mode---config)
 - [Regions & masks](#regions--masks)
 - [Interaction steps & auto-explore](#interaction-steps--auto-explore)
@@ -166,6 +167,7 @@ bun run src/cli.ts init-config <page> --target <url> --against <ref> [--viewport
 bun run src/cli.ts discover <page> --target <url> --against <url> [--viewport WxH] [--state f] [--max-steps n]
 bun run src/cli.ts approve <name> [--run <dir>]
 bun run src/cli.ts approve --all [--run <dir>]
+bun run src/cli.ts dashboard [--port 4600] [--out out]
 bun run src/cli.ts --config <file.json> [options]
 ```
 
@@ -197,6 +199,7 @@ bun run src/cli.ts --config <file.json> [options]
 | `--update-baseline` | boolean | — | After the run completes, approve all results into `baselines/manifest.json`. If a `baseline:<name>` ref has no manifest entry yet, that run is a bootstrap: diff phase skipped, then approved. Works in both single-run and batch mode (all entries are approved in batch). |
 | `--run` | path | — | (approve only) bless from a specific run directory instead of auto-finding the newest. |
 | `--all` | boolean | — | (approve only) bless every entry in the run, not just the named one. |
+| `--port` | number | `4600` | (dashboard only) port to bind the local server. Invalid value → usage error + exit 2. |
 
 **Subcommands:**
 - `login` — opens a headed browser to capture a `storageState`; with `--check`, validates an existing session headlessly.
@@ -204,6 +207,7 @@ bun run src/cli.ts --config <file.json> [options]
 - `discover <page>` — crawls the live `--target` DOM (read-only) and writes a run-ready `<page>.fullcheck.json`.
 - `approve <name> [--run <dir>]` — blesses a run's target capture and named step shots into `baselines/manifest.json`. Auto-finds the newest run containing `<name>` unless `--run` is given.
 - `approve --all [--run <dir>]` — blesses every entry in the run (for batch configs).
+- `dashboard [--port 4600] [--out out]` — starts the local artifact-manager dashboard (see [Dashboard](#dashboard)).
 
 **Exit codes:** `0` success · `1` a gate tripped (`--max-mismatch`,
 `--require-steps`, `--require-style`) or an unexpected error · `2` usage error
@@ -342,6 +346,41 @@ failure.
 1. **Parity check:** run against staging/Figma to verify the page matches the reference.
 2. **Bless:** once satisfied, `approve` that run (or re-run with `--update-baseline`).
 3. **Regression:** change the config's `against` to `baseline:<name>` (or use a separate baseline config). Future commits diff against the approved state.
+
+---
+
+## Dashboard
+
+The dashboard is a local web UI for browsing, keeping, and cleaning up `out/` run directories.
+
+```bash
+bun run src/cli.ts dashboard [--port 4600] [--out out]
+```
+
+- Resolves `--out` / `VIGRESS_OUT` / `"out"` the same way every other subcommand does.
+- Binds **`127.0.0.1` only** — the server can delete files and is never exposed beyond localhost.
+- Serves until `Ctrl-C`. An invalid `--port` value prints the usage line and exits with code `2`.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Dashboard HTML page. |
+| `GET` | `/api/runs` | JSON array of all run-dir entries (sorted newest-first). |
+| `GET` | `/files/<run>/<path>` | Serves an artifact from `out/<run>/`. Path-traversal guarded (lexical + realpath symlink check); dot-prefixed path segments (e.g. `.keep`, `.approved`) are refused with `403`; returns `403` on any escape attempt. |
+| `POST` | `/api/runs/<dir>/keep` | Toggles the `.keep` marker file in the run dir. Returns `{ keep: true|false }`. |
+| `DELETE` | `/api/runs/<dir>` | Deletes the run dir. Returns `{ "deleted": "<dir>" }` on success; `403` + `{ lockedBy }` if the dir is referenced by `baselines/manifest.json`; `404` if the dir has already vanished. |
+| `POST` | `/api/cleanup` | Bulk-deletes every run dir that is neither `.keep`-marked nor referenced by the manifest. Returns `{ deleted: string[], freedBytes: number }`. |
+
+### Keep and lock semantics
+
+- **`.keep` marker** — a zero-byte file written inside the run dir. Toggled via `POST /api/runs/<dir>/keep`. Keep-marked dirs are excluded from `POST /api/cleanup` but can still be manually deleted via `DELETE /api/runs/<dir>`. `.keep` is independent of `.approved`.
+- **Manifest lock** — any run dir referenced by `baselines/manifest.json` (as `approvedFrom` or as the parent of any artifact path) is **locked**: `DELETE /api/runs/<dir>` returns `403` with a `lockedBy` field listing the baseline names that depend on it. This guard is re-checked server-side on every request; bypassing the UI does not bypass it. Cleanup (`POST /api/cleanup`) never touches locked dirs.
+- **Manifest is re-read per request** — `vigress approve` can run while the dashboard is up and the locks will reflect the updated manifest immediately.
+
+### Legacy / unreadable run dirs
+
+Run dirs whose `summary.json` is unreadable or missing the `steps`, `stepDiffs`, or `regions` arrays (written by older vigress versions) are listed in `/api/runs` as `"unreadable": true`. They are not locked (unless the manifest references them) and are included in `POST /api/cleanup`.
 
 ---
 
@@ -753,14 +792,21 @@ bun run src/cli.ts --config comparisons.json --state auth.state.json --json --ma
 Per comparison, the CLI runs this pipeline:
 
 ```
-parse args/env → launch Chrome → new context (viewport + storageState [+ recordVideo])
-  → capture target URL → resolve baseline (capture URL | copy/download image | fetch Figma)
-  → pixelmatch diff (crop to common size) → collect result → close context (flush video)
-→ write summary.json + report.html → (with --json) print payload → exit code
+parse args/env → resolve baseline: refs from the manifest (guards fail fast, no browser)
+→ launch Chrome → new context (viewport + storageState [+ recordVideo])
+  → capture target URL
+  → resolve baseline (capture URL | copy/download image | fetch Figma | approved manifest image)
+  → pixelmatch diff (crop to common size, paint masks, per-region sub-diffs)
+  → interaction phase (explicit steps | auto-explore) — target-only, AFTER the clean diff
+  → step diffs vs approved step shots (baseline: runs only)
+  → close context (flush video)
+→ write summary.json + report.html → (--update-baseline: approve results into the manifest)
+→ (with --json) print payload → exit code (gates: --max-mismatch / --require-steps / --require-style)
 ```
 
 Pure logic (diff, config parsing, baseline-type detection, Figma-ref parsing,
-HTML/JSON building) is separated from the browser I/O so it's unit-testable
+region/box math, the baselines manifest, the dashboard view-model, HTML/JSON
+building) is separated from the browser and server I/O so it's unit-testable
 without a browser.
 
 ---
@@ -770,20 +816,29 @@ without a browser.
 ```
 vigress/
 ├── src/
-│   ├── cli.ts          # entrypoint: parse args, dispatch, orchestrate
-│   ├── config.ts       # types, viewport/clip parse, baseline detect, run/batch builder
-│   ├── auth.ts         # storageState load + `login` command
-│   ├── browser.ts      # launch Chrome (channel:"chrome")
-│   ├── capture.ts      # navigate + settle + screenshot
-│   ├── diff.ts         # pixelmatch (crop-to-common) → DiffResult
-│   ├── sources/        # baseline resolvers: url / image / figma
-│   ├── htmlReport.ts   # buildReportHtml(summary) → report.html
-│   ├── json.ts         # buildJsonPayload(summary) → absolute-path agent payload
-│   ├── report.ts       # writes summary.json + report.html
-│   └── types.ts        # RunResult / Summary / SCHEMA_VERSION
-├── skills/vigress/SKILL.md   # AI skill (symlinked into ~/.claude/skills)
+│   ├── cli.ts            # entrypoint: parse args, dispatch subcommands, orchestrate
+│   ├── config.ts         # types, viewport/clip parse, baseline detect, run/batch builder
+│   ├── auth.ts           # storageState load, login / login --check, expired-session detection
+│   ├── browser.ts        # launch Chrome (channel:"chrome")
+│   ├── capture.ts        # navigate + settle + screenshot
+│   ├── diff.ts           # pixelmatch (crop-to-common), per-region sub-diffs, step diffs
+│   ├── regions.ts        # selector→box resolution, mask painting, region scoring
+│   ├── style.ts          # computed-style probing + property-by-property diffs
+│   ├── steps.ts          # interaction steps + auto-explore
+│   ├── discover.ts       # read-only DOM crawl → generated fullcheck config
+│   ├── baselines.ts      # baselines/manifest.json: parse/build/upsert/resolve, verdict matrix
+│   ├── dashboard.ts      # dashboard view-model: run index, locks, cleanup selection, path guard
+│   ├── dashboardHtml.ts  # the dashboard page (static, self-contained)
+│   ├── server.ts         # Bun.serve wiring for `vigress dashboard` (127.0.0.1 only)
+│   ├── sources/          # baseline resolvers: url / image / figma
+│   ├── htmlReport.ts     # buildReportHtml(summary) → report.html
+│   ├── json.ts           # buildJsonPayload(summary) → absolute-path agent payload
+│   ├── report.ts         # writes summary.json + report.html
+│   └── types.ts          # RunResult / Summary / SCHEMA_VERSION
+├── skills/vigress/       # AI skill + playbook (symlinked into ~/.claude/skills)
+├── baselines/            # manifest.json — approved baselines (git-tracked; created by `approve`)
 ├── .env.example
-└── out/                # artifacts (git-ignored)
+└── out/                  # artifacts (git-ignored)
 ```
 
 ---
@@ -794,9 +849,11 @@ vigress/
 bun test
 ```
 
-Unit tests cover the pure logic only (diff, config, sources parsing, HTML
-report, JSON payload) — no browser, no network. The browser/capture/diff/video
-pipeline is verified by running a real comparison.
+Unit tests cover the pure logic only (diff + step diffs, config, sources
+parsing, baselines manifest, region/style math, dashboard view-model and page,
+HTML report, JSON payload) — no browser, no network. The browser/capture/video
+pipeline is verified by running a real comparison; the dashboard server is
+verified live with curl (see the endpoint guards in [Dashboard](#dashboard)).
 
 ---
 
