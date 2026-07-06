@@ -1,8 +1,9 @@
 import type { BaselineType, Viewport, ChecklistItem, StepAction } from "./config";
 import type { StyleDiffEntry } from "./style";
 
-// v6: steps[] may contain the "assert" action (state/text/urlContains outcome checks).
-export const SCHEMA_VERSION = 6;
+// v7: baseline: refs (self-regression) — stepDiffs[], targetUrl, bootstrap runs
+// with baseline/diff/mismatch omitted.
+export const SCHEMA_VERSION = 7;
 
 export interface BoxDims {
   width: number;
@@ -40,21 +41,35 @@ export interface StepResult {
   error?: string; // present when status === "failed"
 }
 
+export type StepDiffVerdict = "ok" | "mismatch" | "new" | "missing";
+
+// A named step screenshot diffed against its approved counterpart.
+export interface StepDiff {
+  name: string;
+  mismatchPercent: number;
+  diff?: string; // path relative to outDir; absent for "new"/"missing"
+  verdict: StepDiffVerdict;
+}
+
 export interface RunResult {
   name: string;
   baselineType: BaselineType;
   viewport: Viewport;
-  mismatchPixels: number;
-  mismatchPercent: number;
+  // Absent on bootstrap runs (nothing to diff against yet):
+  mismatchPixels?: number;
+  mismatchPercent?: number;
   target: string; // path relative to outDir
-  baseline: string; // path relative to outDir
-  diff: string; // path relative to outDir
+  targetUrl: string; // the URL that was captured (approve records it as sourceUrl)
+  baseline?: string; // path relative to outDir; absent on bootstrap
+  diff?: string; // path relative to outDir; absent on bootstrap
   video?: string; // path relative to outDir
+  bootstrap?: true; // first baseline: run approved via --update-baseline
   regions: RegionScore[]; // [] when none
   checklist: ChecklistItem[]; // [] when none
   mode: RunMode; // "static" | "explore" | "steps"
   shots: Shot[]; // [] unless screenshot steps ran
   steps: StepResult[]; // [] for static/explore
+  stepDiffs: StepDiff[]; // [] unless a baseline: run with approved step shots
 }
 
 export interface Summary {

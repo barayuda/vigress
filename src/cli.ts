@@ -334,6 +334,7 @@ async function main(): Promise<number> {
         mismatchPixels: full.mismatchPixels,
         mismatchPercent: full.mismatchPercent,
         target: targetRel,
+        targetUrl: spec.target,
         baseline: baselineRel,
         diff: diffRel,
         video: videoRel,
@@ -342,6 +343,7 @@ async function main(): Promise<number> {
         mode,
         shots,
         steps: stepResults,
+        stepDiffs: [],
       });
       const ss = stepSummary(stepResults);
       const stepsNote = mode === "steps" ? ` · steps ${ss.ok}/${ss.total} ok` : "";

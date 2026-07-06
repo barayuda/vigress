@@ -27,6 +27,7 @@ const makeSummary = (outDir: string): Summary => ({
       mismatchPixels: 50,
       mismatchPercent: 0.5,
       target: "homepage.target.png",
+      targetUrl: "https://app.test/page",
       baseline: "homepage.baseline.png",
       diff: "homepage.diff.png",
       regions: [],
@@ -42,7 +43,7 @@ const makeSummary = (outDir: string): Summary => ({
           verdict: "fail",
         },
       ],
-      mode: "static", shots: [], steps: [],
+      mode: "static", shots: [], steps: [], stepDiffs: [],
     },
   ],
 });

@@ -16,9 +16,11 @@ export function buildJsonPayload(summary: Summary): object {
       mismatchPixels: r.mismatchPixels,
       mismatchPercent: r.mismatchPercent,
       target: abs(r.target),
-      baseline: abs(r.baseline),
-      diff: abs(r.diff),
+      targetUrl: r.targetUrl,
+      baseline: r.baseline ? abs(r.baseline) : undefined,
+      diff: r.diff ? abs(r.diff) : undefined,
       video: r.video ? abs(r.video) : undefined,
+      bootstrap: r.bootstrap,
       regions: r.regions.map((rg) => ({
         name: rg.name,
         mismatchPixels: rg.mismatchPixels,
@@ -34,6 +36,7 @@ export function buildJsonPayload(summary: Summary): object {
       mode: r.mode,
       shots: r.shots.map((s) => ({ name: s.name, path: abs(s.path) })),
       steps: r.steps,
+      stepDiffs: r.stepDiffs.map((d) => ({ ...d, diff: d.diff ? abs(d.diff) : undefined })),
     })),
   };
 }
