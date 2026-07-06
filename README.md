@@ -792,14 +792,21 @@ bun run src/cli.ts --config comparisons.json --state auth.state.json --json --ma
 Per comparison, the CLI runs this pipeline:
 
 ```
-parse args/env → launch Chrome → new context (viewport + storageState [+ recordVideo])
-  → capture target URL → resolve baseline (capture URL | copy/download image | fetch Figma)
-  → pixelmatch diff (crop to common size) → collect result → close context (flush video)
-→ write summary.json + report.html → (with --json) print payload → exit code
+parse args/env → resolve baseline: refs from the manifest (guards fail fast, no browser)
+→ launch Chrome → new context (viewport + storageState [+ recordVideo])
+  → capture target URL
+  → resolve baseline (capture URL | copy/download image | fetch Figma | approved manifest image)
+  → pixelmatch diff (crop to common size, paint masks, per-region sub-diffs)
+  → interaction phase (explicit steps | auto-explore) — target-only, AFTER the clean diff
+  → step diffs vs approved step shots (baseline: runs only)
+  → close context (flush video)
+→ write summary.json + report.html → (--update-baseline: approve results into the manifest)
+→ (with --json) print payload → exit code (gates: --max-mismatch / --require-steps / --require-style)
 ```
 
 Pure logic (diff, config parsing, baseline-type detection, Figma-ref parsing,
-HTML/JSON building) is separated from the browser I/O so it's unit-testable
+region/box math, the baselines manifest, the dashboard view-model, HTML/JSON
+building) is separated from the browser and server I/O so it's unit-testable
 without a browser.
 
 ---
@@ -809,20 +816,29 @@ without a browser.
 ```
 vigress/
 ├── src/
-│   ├── cli.ts          # entrypoint: parse args, dispatch, orchestrate
-│   ├── config.ts       # types, viewport/clip parse, baseline detect, run/batch builder
-│   ├── auth.ts         # storageState load + `login` command
-│   ├── browser.ts      # launch Chrome (channel:"chrome")
-│   ├── capture.ts      # navigate + settle + screenshot
-│   ├── diff.ts         # pixelmatch (crop-to-common) → DiffResult
-│   ├── sources/        # baseline resolvers: url / image / figma
-│   ├── htmlReport.ts   # buildReportHtml(summary) → report.html
-│   ├── json.ts         # buildJsonPayload(summary) → absolute-path agent payload
-│   ├── report.ts       # writes summary.json + report.html
-│   └── types.ts        # RunResult / Summary / SCHEMA_VERSION
-├── skills/vigress/SKILL.md   # AI skill (symlinked into ~/.claude/skills)
+│   ├── cli.ts            # entrypoint: parse args, dispatch subcommands, orchestrate
+│   ├── config.ts         # types, viewport/clip parse, baseline detect, run/batch builder
+│   ├── auth.ts           # storageState load, login / login --check, expired-session detection
+│   ├── browser.ts        # launch Chrome (channel:"chrome")
+│   ├── capture.ts        # navigate + settle + screenshot
+│   ├── diff.ts           # pixelmatch (crop-to-common), per-region sub-diffs, step diffs
+│   ├── regions.ts        # selector→box resolution, mask painting, region scoring
+│   ├── style.ts          # computed-style probing + property-by-property diffs
+│   ├── steps.ts          # interaction steps + auto-explore
+│   ├── discover.ts       # read-only DOM crawl → generated fullcheck config
+│   ├── baselines.ts      # baselines/manifest.json: parse/build/upsert/resolve, verdict matrix
+│   ├── dashboard.ts      # dashboard view-model: run index, locks, cleanup selection, path guard
+│   ├── dashboardHtml.ts  # the dashboard page (static, self-contained)
+│   ├── server.ts         # Bun.serve wiring for `vigress dashboard` (127.0.0.1 only)
+│   ├── sources/          # baseline resolvers: url / image / figma
+│   ├── htmlReport.ts     # buildReportHtml(summary) → report.html
+│   ├── json.ts           # buildJsonPayload(summary) → absolute-path agent payload
+│   ├── report.ts         # writes summary.json + report.html
+│   └── types.ts          # RunResult / Summary / SCHEMA_VERSION
+├── skills/vigress/       # AI skill + playbook (symlinked into ~/.claude/skills)
+├── baselines/            # manifest.json — approved baselines (git-tracked; created by `approve`)
 ├── .env.example
-└── out/                # artifacts (git-ignored)
+└── out/                  # artifacts (git-ignored)
 ```
 
 ---
@@ -833,9 +849,11 @@ vigress/
 bun test
 ```
 
-Unit tests cover the pure logic only (diff, config, sources parsing, HTML
-report, JSON payload) — no browser, no network. The browser/capture/diff/video
-pipeline is verified by running a real comparison.
+Unit tests cover the pure logic only (diff + step diffs, config, sources
+parsing, baselines manifest, region/style math, dashboard view-model and page,
+HTML report, JSON payload) — no browser, no network. The browser/capture/video
+pipeline is verified by running a real comparison; the dashboard server is
+verified live with curl (see the endpoint guards in [Dashboard](#dashboard)).
 
 ---
 
