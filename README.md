@@ -367,9 +367,9 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 |--------|------|-------------|
 | `GET` | `/` | Dashboard HTML page. |
 | `GET` | `/api/runs` | JSON array of all run-dir entries (sorted newest-first). |
-| `GET` | `/files/<run>/<path>` | Serves an artifact from `out/<run>/`. Path-traversal guarded (lexical + realpath symlink check); returns `403` on any escape attempt. |
+| `GET` | `/files/<run>/<path>` | Serves an artifact from `out/<run>/`. Path-traversal guarded (lexical + realpath symlink check); dot-prefixed path segments (e.g. `.keep`, `.approved`) are refused with `403`; returns `403` on any escape attempt. |
 | `POST` | `/api/runs/<dir>/keep` | Toggles the `.keep` marker file in the run dir. Returns `{ keep: true|false }`. |
-| `DELETE` | `/api/runs/<dir>` | Deletes the run dir. Returns `403` + `{ lockedBy }` if the dir is referenced by `baselines/manifest.json`; `404` if the dir has already vanished. |
+| `DELETE` | `/api/runs/<dir>` | Deletes the run dir. Returns `{ "deleted": "<dir>" }` on success; `403` + `{ lockedBy }` if the dir is referenced by `baselines/manifest.json`; `404` if the dir has already vanished. |
 | `POST` | `/api/cleanup` | Bulk-deletes every run dir that is neither `.keep`-marked nor referenced by the manifest. Returns `{ deleted: string[], freedBytes: number }`. |
 
 ### Keep and lock semantics
@@ -380,7 +380,7 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 
 ### Legacy / unreadable run dirs
 
-Run dirs whose `summary.json` is missing, unreadable, or was written by an older vigress version (pre-schema-v7 — missing `steps`, `stepDiffs`, or `regions` arrays on any run entry) are listed in `/api/runs` as `"unreadable": true`. They are not locked (unless the manifest references them) and are included in `POST /api/cleanup`.
+Run dirs whose `summary.json` is unreadable or missing the `steps`, `stepDiffs`, or `regions` arrays (written by older vigress versions) are listed in `/api/runs` as `"unreadable": true`. They are not locked (unless the manifest references them) and are included in `POST /api/cleanup`.
 
 ---
 

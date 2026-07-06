@@ -12,7 +12,7 @@ import type { Summary } from "./types";
 export interface DashboardOpts {
   outDirAbs: string; // absolute out/ dir
   port: number;
-  rootDir: string; // repo root (cwd) — relPath base, matching manifest path style
+  rootDir: string; // repo root (cwd) — must match the cwd used when running approve, since manifest paths are relative to it
   manifestFile: string; // absolute path to baselines/manifest.json
 }
 
@@ -84,6 +84,9 @@ function dirSegment(raw: string): string | null {
 }
 
 export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
+  // Resolve once at startup — constant for the server's lifetime.
+  const realOutDir = realpathSync(o.outDirAbs);
+
   return Bun.serve({
     hostname: "127.0.0.1", // it can delete files — never exposed beyond localhost
     port: o.port,
@@ -104,11 +107,22 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         const dir = dirSegment(parts[1]);
         if (!dir) return new Response("forbidden", { status: 403 });
         const rest = parts.slice(2).map(decodeURIComponent).join("/");
+        // Also refuse dot-prefixed path segments (e.g. .keep, .approved).
+        if (parts.slice(2).some((seg) => seg.startsWith("."))) {
+          return new Response("forbidden", { status: 403 });
+        }
         const abs = safeChildPath(join(o.outDirAbs, dir), rest);
         if (!abs) return new Response("forbidden", { status: 403 });
         if (!existsSync(abs)) return new Response("not found", { status: 404 });
         // Lexical check passed; also refuse symlinks that escape out/.
-        if (!realpathSync(abs).startsWith(realpathSync(o.outDirAbs) + "/")) {
+        let realAbs: string;
+        try {
+          realAbs = realpathSync(abs);
+        } catch {
+          // File vanished between existsSync and realpathSync (concurrent delete).
+          return new Response("not found", { status: 404 });
+        }
+        if (!realAbs.startsWith(realOutDir + "/")) {
           return new Response("forbidden", { status: 403 });
         }
         return new Response(Bun.file(abs));
