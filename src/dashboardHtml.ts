@@ -22,7 +22,7 @@ export function buildDashboardHtml(): string {
   .name{font-weight:600}
   .meta{color:#656f80;font-size:12px}
   .badges span{display:inline-block;font-size:11px;border-radius:10px;padding:1px 8px;margin-right:6px}
-  .b-approved{background:#e6f4ea;color:#067647}
+  .b-locked{background:#f3f4f6;color:#374151}
   .b-keep{background:#e8f0fe;color:#1a56db}
   .b-unreadable{background:#fef3c7;color:#a16207}
   .b-issues{background:#fee2e2;color:#b42318}
@@ -82,7 +82,7 @@ function render() {
       (r.entries.length ? " · " + r.entries.map((e) => e.name + (e.bootstrap ? " (bootstrap)" : " " + (e.mismatchPercent ?? 0) + "%")).join(", ") : "") +
       (r.worstMismatch ? " · worst " + r.worstMismatch + "%" : "")));
     const badges = el("div", "badges");
-    if (r.lockedBy.length) badges.appendChild(el("span", "b-approved", "🔒 baseline: " + r.lockedBy.join(", ")));
+    if (r.lockedBy.length) badges.appendChild(el("span", "b-locked", "🔒 baseline: " + r.lockedBy.join(", ")));
     if (r.keep) badges.appendChild(el("span", "b-keep", "keep"));
     if (r.unreadable) badges.appendChild(el("span", "b-unreadable", "unreadable"));
     if (r.issues) badges.appendChild(el("span", "b-issues", r.issues + " issue(s)"));
@@ -108,7 +108,7 @@ function render() {
     delBtn.onclick = async () => {
       if (!confirm("Delete " + r.dirName + " (" + fmtBytes(r.sizeBytes) + ")?")) return;
       const res = await fetch("/api/runs/" + encodeURIComponent(r.dirName), { method: "DELETE" });
-      if (!res.ok) alert("Delete refused: " + (await res.text()));
+      if (!res.ok) { alert("Delete refused: " + (await res.text())); return; }
       load();
     };
     actions.appendChild(delBtn);

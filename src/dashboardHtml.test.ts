@@ -18,6 +18,6 @@ describe("buildDashboardHtml", () => {
   });
   it("renders untrusted strings via textContent, not innerHTML interpolation", () => {
     // The client script must never build HTML by string-concatenating run data.
-    expect(html).not.toMatch(/innerHTML\s*=\s*[`"'].*\$\{/);
+    expect(html).not.toMatch(/(innerHTML|outerHTML|insertAdjacentHTML|document\.write)/);
   });
 });
