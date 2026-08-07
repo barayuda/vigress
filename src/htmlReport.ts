@@ -91,23 +91,35 @@ function stepDiffRows(stepDiffs: StepDiff[]): string {
     </table>`;
 }
 
+// Side-by-side comparison: baseline (old / reference) → target (new) → diff.
+// Each screenshot is column-headed so it is unambiguous which version is which;
+// the target column shows the captured URL. Columns collapse gracefully on a
+// bootstrap run (no baseline/diff yet).
+function compareTable(r: RunResult): string {
+  const cell = (label: string, sub: string, img: string | undefined, alt: string): string =>
+    `<td><div class="cmp-h">${esc(label)}</div>${
+      img ? `<img src="${esc(img)}" alt="${esc(alt)}">` : "—"
+    }${sub ? `<div class="cmp-src">${esc(sub)}</div>` : ""}</td>`;
+  const cols = [
+    r.baseline ? cell("Baseline · old", r.baselineType, r.baseline, "baseline") : "",
+    cell("Target · new", r.targetUrl, r.target, "target"),
+    r.diff ? cell("Diff", "", r.diff, "diff") : "",
+  ].filter(Boolean).join("");
+  return `<table class="compare"><tbody><tr>${cols}</tr></tbody></table>`;
+}
+
 function card(r: RunResult): string {
   const video = r.video
     ? `<div class="vid"><video src="${esc(r.video)}" controls muted></video></div>`
     : "";
   const pct = r.bootstrap ? "bootstrap" : `${r.mismatchPercent ?? 0}%`;
   const px = r.bootstrap ? "new baseline" : `${r.mismatchPixels ?? 0}px`;
-  const figures = [
-    `<figure><figcaption>target</figcaption><img src="${esc(r.target)}" alt="target"></figure>`,
-    r.baseline ? `<figure><figcaption>baseline</figcaption><img src="${esc(r.baseline)}" alt="baseline"></figure>` : "",
-    r.diff ? `<figure><figcaption>diff</figcaption><img src="${esc(r.diff)}" alt="diff"></figure>` : "",
-  ].join("");
   return `
   <section class="card">
     <h2>${esc(r.name)} <span class="pct">${pct}</span>
       <span class="meta">${esc(r.baselineType)} · ${r.viewport.width}×${r.viewport.height} · ${px} · ${esc(r.mode)}</span>
     </h2>
-    <div class="imgs">${figures}</div>
+    ${compareTable(r)}
     ${regionRows(r.regions)}
     ${checklistList(r.checklist)}
     ${functionalitySteps(r.steps)}
@@ -138,6 +150,12 @@ export function buildReportHtml(summary: Summary): string {
   figure{margin:0}
   figcaption{color:#656f80;font-size:12px;margin-bottom:4px}
   img{width:100%;border:1px solid #ebf0f1;background:#fff}
+  table.compare{width:100%;border-collapse:collapse;table-layout:fixed}
+  table.compare td{vertical-align:top;padding:0 6px 8px}
+  table.compare td:first-child{padding-left:0}
+  table.compare td:last-child{padding-right:0}
+  .cmp-h{display:inline-block;font-weight:600;font-size:12px;margin-bottom:6px;padding:2px 8px;border-radius:4px;background:#eef2f7;color:#232933}
+  .cmp-src{color:#656f80;font-size:11px;margin-top:4px;word-break:break-all}
   .vid{margin-top:12px}
   video{max-width:100%;border:1px solid #ebf0f1}
   table.regions{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
