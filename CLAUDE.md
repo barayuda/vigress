@@ -13,6 +13,7 @@ bun install                          # setup (uses system Chrome; no Playwright 
 bun test                             # all unit tests
 bun test src/diff.test.ts            # single test file
 bun test -t "pattern"                # filter by test name
+bunx tsc --noEmit                    # typecheck (tsconfig is strict + noEmit; the only static check)
 
 # Run the CLI
 bun run src/cli.ts --target <url> --against <url|img.png|figma:KEY/NODE> [--state auth.state.json] [--json]
@@ -45,7 +46,9 @@ Interaction modes: `static` (`--no-steps`), `steps` (explicit steps configured),
 
 ### Pure logic vs browser I/O — the key separation
 
-Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `auth.ts`'s login flow, and `sources/urlSource.ts` is pure and unit-testable **without a browser or network**. Tests are colocated (`src/*.test.ts`) and cover only the pure side: diffing, config/flag parsing, baseline-type detection, region/box math, style diffing, HTML/JSON building. Keep new logic on the pure side when possible so it stays testable.
+Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `auth.ts`'s login flow, `sources/urlSource.ts`, `sources/figmaSource.ts` (network), and `server.ts` (dashboard HTTP/filesystem) is pure and unit-testable **without a browser or network**. Tests are colocated (`src/*.test.ts`) and cover only the pure side: diffing, config/flag parsing, baseline-type detection, region/box math, style diffing, HTML/JSON building. Keep new logic on the pure side when possible so it stays testable.
+
+The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `out/`, serves artifacts, executes deletes); every decision (manifest locking, cleanup selection, path safety via `safeChildPath`) lives in `dashboard.ts`, and the page is built by `dashboardHtml.ts`. Put new delete/keep rules in `dashboard.ts`, not `server.ts`.
 
 ### The JSON contract (three places to keep in sync)
 
@@ -57,7 +60,7 @@ Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `au
 
 ### Config surface
 
-- Batch configs are JSON arrays of run entries; `*.fullcheck.json` files at the repo root are working examples (one page's full parity check: `regions`, `mask`, `checklist`, `steps`).
+- Batch configs are JSON arrays of run entries; `comparisons.example.json` is the minimal example; `*.fullcheck.json` files (one page's full parity check: `regions`, `mask`, `checklist`, `steps`) are git-ignored/private, so generate one with `init-config` or `discover` rather than looking for one in the repo.
 - CLI repeatable flags (`--region`, `--mask`, `--step`) use `key=value` pairs delimited by `;`, parsed in `config.ts`. They apply to single runs only and are ignored (with a stderr warning) under `--config`.
 - Region/mask selectors are per-side: `target` / `baseline` selectors → shared `selector` → raw `clip` fallback. Regions may opt into computed-style diffing via `style` (handled in `style.ts`); masks never do.
 - Selector-resolved region/mask boxes are translated into the screenshot's coordinate space via `boxInCapture` in `regions.ts` (handles `--clip` offsets; fully-outside boxes → `unresolved`). Raw `clip` regions/masks pass through untranslated — they're authored against the final screenshot.
