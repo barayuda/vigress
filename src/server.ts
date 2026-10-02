@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
-import { buildRunIndex, referencedRunDirs, cleanupSelection, safeChildPath, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { buildRunIndex, referencedRunDirs, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, type Manifest } from "./baselines";
 import type { Summary } from "./types";
@@ -78,7 +78,7 @@ const json = (body: unknown, status = 200): Response =>
 
 // A run-dir URL segment must be a single, non-dotted path component.
 function dirSegment(raw: string): string | null {
-  const name = decodeURIComponent(raw);
+  const name = safeDecode(raw);
   if (!name || name.includes("/") || name.includes("..") || name.startsWith(".")) return null;
   return name;
 }
@@ -106,7 +106,9 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
       if (req.method === "GET" && parts[0] === "files" && parts.length >= 3) {
         const dir = dirSegment(parts[1]);
         if (!dir) return new Response("forbidden", { status: 403 });
-        const rest = parts.slice(2).map(decodeURIComponent).join("/");
+        const decoded = parts.slice(2).map(safeDecode);
+        if (decoded.some((s) => s === null)) return new Response("forbidden", { status: 403 });
+        const rest = decoded.join("/");
         // Also refuse dot-prefixed path segments (e.g. .keep, .approved).
         if (parts.slice(2).some((seg) => seg.startsWith("."))) {
           return new Response("forbidden", { status: 403 });

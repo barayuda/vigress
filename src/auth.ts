@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser";
 
 // Returns a Playwright context option object that includes storageState when a
 // valid file is given. Throws a clear hint when a path is given but missing.
@@ -49,7 +49,7 @@ export function looksLikeLoginRedirect(requested: string, final: string): boolea
 // doesn't share cookies with) needs both sessions in the same state file —
 // without this, logging into the second host would silently drop the first.
 export async function runLogin(loginUrl: string, statePath: string): Promise<void> {
-  const browser = await chromium.launch({ channel: "chrome", headless: false });
+  const browser = await launchBrowser(false);
   const ctx = existsSync(statePath)
     ? await browser.newContext({ storageState: statePath })
     : await browser.newContext();
@@ -74,7 +74,7 @@ export async function checkSession(
   url: string,
   statePath: string,
 ): Promise<{ loggedIn: boolean; finalUrl: string }> {
-  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  const browser = await launchBrowser();
   try {
     const ctx = await browser.newContext(storageStateOption(statePath));
     const page = await ctx.newPage();

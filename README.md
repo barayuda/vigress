@@ -78,8 +78,8 @@ cp .env.example .env      # optional: set FIGMA_TOKEN, default viewport, etc.
 
 Bun does **not** run Playwright's browser-download postinstall, which is fine —
 `vigress` uses your system Chrome. If Chrome is missing, either install it, or
-run `bunx playwright install chromium` and change the `channel: "chrome"` launch
-in `src/browser.ts` to plain `chromium.launch({ headless: true })`.
+set `VIGRESS_BROWSER=msedge` to use Microsoft Edge, or run `bunx playwright install chromium` and change the launch
+in `src/browser.ts` to plain `chromium.launch({ headless })`.
 
 > Optional: `bun link` in this folder exposes a global `vigress` command so you
 > can type `vigress …` instead of `bun run src/cli.ts …`. All examples below use
@@ -175,7 +175,7 @@ bun run src/cli.ts --config <file.json> [options]
 |------|------|---------|-------------|
 | `--target` | string | — | URL to capture and check (required unless `--config`). |
 | `--against` | string | — | Baseline: a URL, an image path/URL, or `figma:KEY/NODE` (required unless `--config`). |
-| `--against-type` | `url`\|`image`\|`figma` | auto | Force the baseline type, overriding auto-detection (single-run only). |
+| `--against-type` | `url`\|`image`\|`figma`\|`baseline` | auto | Force the baseline type, overriding auto-detection (single-run only). |
 | `--name` | string | last path segment of target | Basename for this comparison's artifacts. |
 | `--out` | string | `out` | Parent output directory. Each run writes to `<out>/<YYYY-MM-DD_HH-MM-SS>/`, so previous runs are never overwritten. |
 | `--no-timestamp` | boolean | — | Write straight into `--out` (fixed path) instead of a timestamped subfolder — overwrites the previous run. |
@@ -625,22 +625,22 @@ fields optional). Each run entry adds:
 
 ## Outputs
 
-Everything lands in `--out` (default `out/`, git-ignored). For a comparison
+Everything lands in a timestamped subfolder `<out>/<YYYY-MM-DD_HH-MM-SS>/` (default `out/`, git-ignored; `--no-timestamp` writes straight into `--out`). Paths below are relative to that run folder. For a comparison
 named `contact`:
 
 | File | What it is |
 |------|------------|
-| `out/contact.target.png` | screenshot of the target URL |
-| `out/contact.baseline.png` | the resolved baseline (captured / copied / downloaded) |
-| `out/contact.diff.png` | pixelmatch heatmap (changed pixels highlighted) |
-| `out/video/*.webm` | capture-session video (only when video is on) |
-| `out/summary.json` | machine-readable run summary (see below) |
-| `out/report.html` | a self-contained review page — **open this** |
+| `contact.target.png` | screenshot of the target URL |
+| `contact.baseline.png` | the resolved baseline (captured / copied / downloaded) |
+| `contact.diff.png` | pixelmatch heatmap (changed pixels highlighted) |
+| `video/*.webm` | capture-session video (only when video is on) |
+| `summary.json` | machine-readable run summary (see below) |
+| `report.html` | a self-contained review page — **open this** |
 
 **`report.html`** shows a header (comparison count + worst mismatch %) and one
 card per comparison with the target / baseline / diff side-by-side plus the
 video. It references the artifacts by relative path, so open it directly
-(`open out/report.html`) — no server needed.
+(`open out/<timestamp>/report.html`) — no server needed.
 
 **`summary.json`** (artifact paths are **relative** to `outDir`):
 ```json
@@ -738,6 +738,7 @@ CLI flags always win over env vars. Bun auto-loads `.env`.
 |----------|----------|-----------------|
 | `FIGMA_TOKEN` | Figma REST export (figma: baselines) | — |
 | `VIGRESS_OUT` | default output dir | `--out` |
+| `VIGRESS_BROWSER` | installed browser to drive: `chrome` (default) or `msedge` (also `chrome-beta`, `msedge-beta`); `.env` is read from the cwd only | — |
 | `VIGRESS_STATE` | default storageState path | `--state` |
 | `VIGRESS_VIEWPORT` | default viewport (`WxH`) | `--viewport` |
 | `VIGRESS_SETTLE` | milliseconds to cap the `networkidle` wait per capture (default `8000`) — SPAs with persistent sockets (MQTT/long-poll) never reach networkidle, so the wait is bounded | — |

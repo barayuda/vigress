@@ -35,7 +35,7 @@ There is no browser-based integration test suite — the capture/diff/video pipe
 ### The pipeline (orchestrated in `src/cli.ts`)
 
 ```
-parse args/env (config.ts) → launch system Chrome (browser.ts, channel:"chrome")
+parse args/env (config.ts) → launch system Chrome/Edge (browser.ts, channel from VIGRESS_BROWSER)
   → capture target (capture.ts) → resolve baseline (sources/: url | image | figma, auto-detected)
   → pixelmatch diff (diff.ts: crop to common size, paint masks magenta, per-region sub-diffs)
   → interaction phase (steps.ts) — target-only, AFTER the clean diff so parity is unaffected
@@ -67,7 +67,7 @@ The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `ou
 - Steps can `assert` outcomes (`state`/`text`/`urlContains`) — the difference between "the selector resolved" and "the control actually worked". `assert` is always a `check: true` step.
 - `against: "baseline:<name>"` (config) or `--against baseline:<name>` (CLI) diffs against an approved capture stored in `baselines/manifest.json`. The manifest is git-tracked; paths in it are relative to the repo root and point into `out/` (no copying). Baselines are per-machine until remote storage exists.
 - `.keep` is a zero-byte marker file written inside a run dir by the dashboard (`POST /api/runs/<dir>/keep`). Keep-marked dirs are excluded from bulk cleanup (`POST /api/cleanup`) but can still be deleted individually. Dirs referenced by `baselines/manifest.json` are **manifest-locked** and cannot be deleted at all (the server re-checks per request). `.keep` is independent of `.approved`.
-- Env vars (Bun auto-loads `.env`; flags always win): `FIGMA_TOKEN`, `VIGRESS_OUT`, `VIGRESS_STATE`, `VIGRESS_VIEWPORT`, `VIGRESS_SETTLE` (networkidle cap, default 8000ms — SPAs with persistent sockets never reach networkidle), `VIGRESS_DWELL` (pause after each step for video legibility, default 1000ms).
+- Env vars (Bun auto-loads `.env`; flags always win): `FIGMA_TOKEN`, `VIGRESS_OUT`, `VIGRESS_STATE`, `VIGRESS_VIEWPORT`, `VIGRESS_SETTLE` (networkidle cap, default 8000ms — SPAs with persistent sockets never reach networkidle), `VIGRESS_DWELL` (pause after each step for video legibility, default 1000ms), `VIGRESS_BROWSER` (`chrome` default, or `msedge`; read by `browserChannel` in `browser.ts` — all launches go through `launchBrowser`). Bun loads `.env` from the cwd only, so export it in your shell profile if you run `vigress` from other directories.
 
 ### Behaviors that look wrong but are deliberate
 

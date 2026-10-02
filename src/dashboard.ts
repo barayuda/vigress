@@ -85,6 +85,15 @@ export function cleanupSelection(index: RunIndexEntry[]): RunIndexEntry[] {
   return index.filter((e) => !e.keep && e.lockedBy.length === 0);
 }
 
+// decodeURIComponent throws on malformed %-sequences; callers map null to 403.
+export function safeDecode(s: string): string | null {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return null;
+  }
+}
+
 // Lexical traversal guard for /files/ requests. The caller decodes the URL
 // path BEFORE calling this; the server additionally realpath-checks on disk
 // (symlink escapes). null = reject with 403.

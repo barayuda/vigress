@@ -15,6 +15,7 @@ agents) a JSON payload. No deps in any app repo; uses system Chrome.
 ```bash
 cd <workspace>/vigress
 bun install                              # first time
+# Uses system Chrome; for Microsoft Edge export VIGRESS_BROWSER=msedge
 bun run src/cli.ts login --url <app-url> --state auth.state.json   # if login needed
 bun run src/cli.ts --target <url> --against <url|img.png|figma:KEY/NODE|baseline:<name>> \
   --state auth.state.json --out out --json

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { referencedRunDirs, buildRunIndex, cleanupSelection, safeChildPath, type RunDirInfo } from "./dashboard";
+import { referencedRunDirs, buildRunIndex, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -107,6 +107,16 @@ describe("cleanupSelection", () => {
       new Map([["out/blessed", ["page"]]]),
     );
     expect(cleanupSelection(idx).map((e) => e.dirName)).toEqual(["junk"]);
+  });
+});
+
+describe("safeDecode", () => {
+  it("decodes percent-encoded segments", () => {
+    expect(safeDecode("a%20b")).toBe("a b");
+  });
+  it("returns null on a malformed sequence instead of throwing", () => {
+    expect(safeDecode("%E0%A4%A")).toBeNull();
+    expect(safeDecode("%")).toBeNull();
   });
 });
 

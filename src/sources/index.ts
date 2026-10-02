@@ -31,5 +31,8 @@ export async function resolveBaseline(
     case "figma":
       await figmaSource(spec.against, outPath, env.FIGMA_TOKEN ?? "");
       return { path: outPath, boxes: {}, styles: {} };
+    case "baseline":
+      // cli.ts resolves baseline: refs from the manifest itself; reaching here is a bug.
+      throw new Error("baseline: refs are resolved in cli.ts, not resolveBaseline");
   }
 }
