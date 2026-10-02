@@ -37,6 +37,13 @@ describe("buildReportHtml", () => {
     expect(html).toContain('src="video/contact.webm"');
     expect(html).toContain("<video");
   });
+  it("labels the comparison columns (baseline=old, target=new) with the target URL", () => {
+    const html = buildReportHtml(summary);
+    expect(html).toContain('class="compare"');
+    expect(html).toContain("Baseline · old");
+    expect(html).toContain("Target · new");
+    expect(html).toContain("https://app.test/page");
+  });
   it("omits the video tag when no video", () => {
     const noVid: Summary = { ...summary, runs: [{ ...summary.runs[0], video: undefined }] };
     const html = buildReportHtml(noVid);

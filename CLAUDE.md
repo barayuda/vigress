@@ -24,6 +24,7 @@ bun run src/cli.ts discover <page> --target <url> --against <ref>     # generate
 bun run src/cli.ts approve <name> [--run <dir>]                       # bless a run's captures as the approved baseline
 bun run src/cli.ts approve --all [--run <dir>]                        # bless every entry in a run (batch configs)
 bun run src/cli.ts --config <page>.fullcheck.json --update-baseline   # run normally then auto-approve all results
+bun run src/cli.ts dashboard [--port 4600] [--out out]                # local artifact-manager dashboard (serves until Ctrl-C)
 ```
 
 There is no browser-based integration test suite — the capture/diff/video pipeline is verified by running a real comparison and opening `out/<timestamp>/report.html`.
@@ -62,6 +63,7 @@ Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `au
 - Selector-resolved region/mask boxes are translated into the screenshot's coordinate space via `boxInCapture` in `regions.ts` (handles `--clip` offsets; fully-outside boxes → `unresolved`). Raw `clip` regions/masks pass through untranslated — they're authored against the final screenshot.
 - Steps can `assert` outcomes (`state`/`text`/`urlContains`) — the difference between "the selector resolved" and "the control actually worked". `assert` is always a `check: true` step.
 - `against: "baseline:<name>"` (config) or `--against baseline:<name>` (CLI) diffs against an approved capture stored in `baselines/manifest.json`. The manifest is git-tracked; paths in it are relative to the repo root and point into `out/` (no copying). Baselines are per-machine until remote storage exists.
+- `.keep` is a zero-byte marker file written inside a run dir by the dashboard (`POST /api/runs/<dir>/keep`). Keep-marked dirs are excluded from bulk cleanup (`POST /api/cleanup`) but can still be deleted individually. Dirs referenced by `baselines/manifest.json` are **manifest-locked** and cannot be deleted at all (the server re-checks per request). `.keep` is independent of `.approved`.
 - Env vars (Bun auto-loads `.env`; flags always win): `FIGMA_TOKEN`, `VIGRESS_OUT`, `VIGRESS_STATE`, `VIGRESS_VIEWPORT`, `VIGRESS_SETTLE` (networkidle cap, default 8000ms — SPAs with persistent sockets never reach networkidle), `VIGRESS_DWELL` (pause after each step for video legibility, default 1000ms).
 
 ### Behaviors that look wrong but are deliberate
@@ -76,5 +78,6 @@ Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `au
 - `auth.state.json` holds live credentials; `*.state.json` is git-ignored — never commit or print its contents.
 - Figma baselines export at `scale=1` (`figmaImageApiUrl`) — the target is captured at `deviceScaleFactor: 1`, and the diff crops to the common top-left, so a 2× export would silently compare a quarter of the design.
 - `discover` is strictly read-only against the live DOM (never clicks/types); the config it emits is a heuristic starting point, and `init-config` refuses to overwrite an existing fullcheck file.
+- `dashboard` binds `127.0.0.1` only (the server can delete files — never expose it). `DELETE /api/runs/<dir>` refuses manifest-referenced dirs with `403` + `lockedBy`, even if the caller bypasses the UI; the manifest is re-read on every request so `vigress approve` can run concurrently.
 - `approve` is manifest-only — artifacts stay in place under `out/` (no copying). This makes the approved run dir precious: **deleting an `out/<timestamp>/` dir that was approved breaks the baseline** until re-approved. The `.approved` marker file in the run dir is informational; the manifest is the contract.
 - `new` step-diff verdicts (a step added to the run since approval) **never trip any gate** by design — adding a step must not break CI until re-approval. Only `missing` (an approved step absent from the run) trips `--require-steps`.

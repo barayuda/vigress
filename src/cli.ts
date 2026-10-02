@@ -16,6 +16,7 @@ import { buildJsonPayload } from "./json";
 import { resolveStyles, styleProps, diffStyleValues, type StyleItem, type StyleValues } from "./style";
 import { extractCandidates, gotoAndSettle, isSafeCandidate, dedupeCandidates, clusterBoxesIntoRegions, buildDiscoveredConfig } from "./discover";
 import { SCHEMA_VERSION, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type StepDiff, type Summary } from "./types";
+import { startDashboard } from "./server";
 
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
@@ -49,6 +50,7 @@ const { values, positionals } = parseArgs({
     "update-baseline": { type: "boolean" },
     run: { type: "string" },
     all: { type: "boolean" },
+    port: { type: "string" },
   },
 });
 
@@ -265,6 +267,25 @@ async function main(): Promise<number> {
       process.stdout.write(`manifest: ${manifestFile}\n`);
     }
     return 0;
+  }
+
+  // dashboard subcommand: local web UI over out/ — browse runs, keep/delete.
+  // Binds 127.0.0.1 only (it deletes files); serves until Ctrl-C.
+  if (positionals[0] === "dashboard") {
+    const port = typeof values.port === "string" ? Number(values.port) : 4600;
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      process.stderr.write("Usage: vigress dashboard [--port 4600] [--out out]\n");
+      return 2;
+    }
+    const baseOut = resolve(typeof values.out === "string" ? values.out : process.env.VIGRESS_OUT ?? "out");
+    const server = startDashboard({
+      outDirAbs: baseOut,
+      port,
+      rootDir: process.cwd(),
+      manifestFile: resolve(MANIFEST_PATH),
+    });
+    process.stdout.write(`vigress dashboard: http://127.0.0.1:${server.port}/ (out: ${baseOut}) — Ctrl-C to stop\n`);
+    await new Promise(() => {}); // serve until killed
   }
 
   const { runs, opts } = buildRunConfig(values as Record<string, unknown>, process.env);
