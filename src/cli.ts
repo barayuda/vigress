@@ -34,6 +34,7 @@ const { values, positionals } = parseArgs({
     video: { type: "boolean" },
     "no-video": { type: "boolean" },
     clip: { type: "string" },
+    "full-page": { type: "boolean" },
     threshold: { type: "string" },
     json: { type: "boolean" },
     quiet: { type: "boolean" },
@@ -399,7 +400,7 @@ async function main(): Promise<number> {
       const captureRect = spec.clip ?? { x: 0, y: 0, width: spec.viewport.width, height: spec.viewport.height };
 
       const page = await ctx.newPage();
-      await capturePage(page, spec.target, join(outDir, targetRel), spec.clip);
+      await capturePage(page, spec.target, join(outDir, targetRel), spec.clip, undefined, spec.fullPage);
       // With a session attached, landing on a login page means it expired —
       // fail fast instead of silently diffing two login screens.
       if (opts.statePath && looksLikeLoginRedirect(spec.target, page.url())) {

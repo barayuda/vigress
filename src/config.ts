@@ -66,6 +66,8 @@ export interface RunSpec {
   baselineType: BaselineType;
   viewport: Viewport;
   clip?: Box;
+  /** Capture the whole scrollable page, not just the viewport. Ignores `clip`. */
+  fullPage?: boolean;
   video: boolean;
   regions?: RegionSpec[];
   mask?: MaskSpec[];
@@ -305,6 +307,7 @@ export function buildRunConfig(
       baselineType: detectBaselineType(r.against),
       viewport: r.viewport ?? viewport,
       clip: r.clip,
+      fullPage: r.fullPage ?? values["full-page"] === true,
       video: r.video ?? !videoOff,
       regions: r.regions,
       mask: r.mask,
@@ -337,6 +340,7 @@ export function buildRunConfig(
         baselineType,
         viewport,
         clip: parseClip(str("clip")),
+        fullPage: values["full-page"] === true,
         video: !videoOff,
       },
     ],
