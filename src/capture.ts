@@ -37,6 +37,12 @@ async function scrollThrough(page: Page): Promise<void> {
     }
     window.scrollTo(0, 0);
   });
+  // Scroll-reveal libraries (AOS) hide sections again once they leave the viewport,
+  // so after scrolling back to the top most of the page would be blank. Pin the
+  // final state instead.
+  await page.addStyleTag({
+    content: "[data-aos]{opacity:1!important;transform:none!important;transition:none!important}",
+  });
   await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
   await page.waitForTimeout(500);
 }
