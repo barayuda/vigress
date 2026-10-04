@@ -55,9 +55,9 @@ Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
 `[{ "name","target","against","clip?","viewport?" }, …]`.
 
 ## For AI agents
-- Pass `--json`: stdout is a single object `{ schemaVersion: 7, outDir, reportHtml,
+- Pass `--json`: stdout is a single object `{ schemaVersion: 8, outDir, reportHtml,
   runs:[{ name, baselineType, viewport, mismatchPixels?, mismatchPercent?,
-  target, targetUrl, baseline?, diff?, video?, bootstrap?,
+  target, targetUrl, fullPage?, baseline?, diff?, video?, bootstrap?,
   mode, shots:[], steps:[{index,action,selector?,check,status,error?}],
   stepDiffs:[{name,mismatchPercent,diff?,verdict:"ok"|"mismatch"|"new"|"missing"}],
   regions:[{name,mismatchPercent,verdict,reason,diff,styleDiff?:[{property,target,baseline,match}]}],
@@ -230,7 +230,7 @@ CLI form: `--step "action=assert;selector=[role=dialog];state=visible"`.
 
 ### Per-step pass/fail results
 
-Each step reports a result. `summary.json` and `--json` are **schemaVersion 7**
+Each step reports a result. `summary.json` and `--json` are **schemaVersion 8**
 and include `mode`, `shots[]`, `steps[]`, and `stepDiffs[]` on each run entry.
 The `steps[]` shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
 
@@ -371,7 +371,7 @@ baseline until re-approved.
 
 In a config entry: `"against": "baseline:<name>"` (or `--against baseline:<name>` on the CLI).
 Guards: no manifest entry → exit 2 ("bootstrap with --update-baseline"); artifact files missing →
-exit 1 ("re-approve or run with --update-baseline"); viewport mismatch vs manifest → exit 2.
+exit 1 ("re-approve or run with --update-baseline"); viewport or `--full-page` mismatch vs manifest → exit 2 (run with the same `--full-page` setting the baseline was approved with).
 
 ### Bootstrap / `--update-baseline`
 

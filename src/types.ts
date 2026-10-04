@@ -3,7 +3,8 @@ import type { StyleDiffEntry } from "./style";
 
 // v7: baseline: refs (self-regression) — stepDiffs[], targetUrl, bootstrap runs
 // with baseline/diff/mismatch omitted.
-export const SCHEMA_VERSION = 7;
+// v8: RunResult.fullPage — lets `approve` record the capture mode in the manifest.
+export const SCHEMA_VERSION = 8;
 
 export interface BoxDims {
   width: number;
@@ -60,6 +61,7 @@ export interface RunResult {
   mismatchPercent?: number;
   target: string; // path relative to outDir
   targetUrl: string; // the URL that was captured (approve records it as sourceUrl)
+  fullPage?: true; // captured as a full-page screenshot (absent = viewport capture)
   baseline?: string; // path relative to outDir; absent on bootstrap
   diff?: string; // path relative to outDir; absent on bootstrap
   video?: string; // path relative to outDir

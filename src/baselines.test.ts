@@ -104,6 +104,36 @@ describe("resolveBaselineArtifacts", () => {
   });
 });
 
+describe("fullPage parity", () => {
+  const vp = { width: 1440, height: 900 };
+  const at = (r: Partial<RunResult>) => upsertBaseline(emptyManifest(), "page", buildManifestEntry(run(r), "out/a", "t"));
+
+  it("records fullPage on the entry only when the run was full-page", () => {
+    expect(buildManifestEntry(run({ fullPage: true }), "out/a", "t").fullPage).toBe(true);
+    expect("fullPage" in buildManifestEntry(run(), "out/a", "t")).toBe(false);
+  });
+  it("accepts a matching full-page setting", () => {
+    expect(resolveBaselineArtifacts(at({ fullPage: true }), "page", vp, true).ok).toBe(true);
+    expect(resolveBaselineArtifacts(at({}), "page", vp, false).ok).toBe(true);
+  });
+  it("treats a legacy entry without the field as not full-page", () => {
+    expect(resolveBaselineArtifacts(at({}), "page", vp).ok).toBe(true);
+    expect(resolveBaselineArtifacts(at({}), "page", vp, true).ok).toBe(false);
+  });
+  it("rejects a mismatch in either direction: code 2, not missingEntry, names both settings", () => {
+    for (const [approved, now] of [[true, false], [false, true]] as const) {
+      const r = resolveBaselineArtifacts(at({ fullPage: approved || undefined }), "page", vp, now);
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.code).toBe(2);
+        expect(r.missingEntry).toBeUndefined();
+        expect(r.message).toMatch(/full-page/);
+        expect(r.message).toMatch(approved ? /approved baseline \(on\)/ : /approved baseline \(off\)/);
+      }
+    }
+  });
+});
+
 describe("pickNewestRun", () => {
   const c = (dir: string, mtimeMs: number, names: string[]): RunDirCandidate => ({
     dir, mtimeMs, summary: summary(names.map((n) => run({ name: n }))),

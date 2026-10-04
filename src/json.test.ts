@@ -114,3 +114,10 @@ describe("buildJsonPayload stepDiffs + bootstrap", () => {
     expect(p.runs[0].targetUrl).toBe("https://app.test/page");
   });
 });
+
+describe("buildJsonPayload fullPage", () => {
+  it("passes fullPage through", () => {
+    const p = buildJsonPayload({ ...summary, runs: [{ ...summary.runs[0], fullPage: true }] }) as any;
+    expect(p.runs[0].fullPage).toBe(true);
+  });
+});

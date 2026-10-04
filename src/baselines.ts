@@ -16,6 +16,7 @@ export interface ManifestEntry {
   approvedFrom: string; // run dir, relative to repo root (provenance)
   viewport: Viewport;
   sourceUrl: string;
+  fullPage?: true; // absent = viewport capture (also how pre-fullPage entries read)
   artifacts: {
     main: string; // relative to repo root
     steps: Record<string, string>; // shot name -> path relative to repo root
@@ -70,6 +71,7 @@ export function buildManifestEntry(run: RunResult, runDirRel: string, approvedAt
     approvedFrom: runDirRel,
     viewport: run.viewport,
     sourceUrl: run.targetUrl,
+    ...(run.fullPage ? { fullPage: true as const } : {}),
     artifacts: { main: join(runDirRel, run.target), steps },
   };
 }
@@ -87,6 +89,7 @@ export function resolveBaselineArtifacts(
   manifest: Manifest | null,
   name: string,
   viewport: Viewport,
+  fullPage = false,
 ): ResolveResult {
   const entry = manifest?.baselines[name];
   if (!entry) {
@@ -101,6 +104,18 @@ export function resolveBaselineArtifacts(
       message:
         `viewport ${viewport.width}x${viewport.height} does not match approved baseline ` +
         `${entry.viewport.width}x${entry.viewport.height} for '${name}' — re-approve at the new viewport`,
+    };
+  }
+  // A viewport capture diffed against a full-page baseline (or vice versa) would
+  // silently compare only the top slice, so the capture mode must match too.
+  const approvedFullPage = entry.fullPage === true;
+  if (approvedFullPage !== fullPage) {
+    const mode = (on: boolean): string => (on ? "on" : "off");
+    return {
+      ok: false, code: 2,
+      message:
+        `full-page capture (${mode(fullPage)}) does not match approved baseline (${mode(approvedFullPage)}) ` +
+        `for '${name}' — ${approvedFullPage ? "pass" : "drop"} --full-page, or re-approve with the new setting`,
     };
   }
   return { ok: true, entry };

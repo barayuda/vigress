@@ -17,6 +17,7 @@ export function buildJsonPayload(summary: Summary): object {
       mismatchPercent: r.mismatchPercent,
       target: abs(r.target),
       targetUrl: r.targetUrl,
+      fullPage: r.fullPage,
       baseline: r.baseline ? abs(r.baseline) : undefined,
       diff: r.diff ? abs(r.diff) : undefined,
       video: r.video ? abs(r.video) : undefined,
