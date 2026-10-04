@@ -1,6 +1,6 @@
 import { dirname, normalize, join, isAbsolute } from "node:path";
 import type { Manifest } from "./baselines";
-import type { Summary } from "./types";
+import type { RunResult, Summary, StepDiffVerdict, RegionVerdict } from "./types";
 
 // Pure view-model + guard logic for the dashboard. The server (server.ts)
 // does the I/O (scanning out/, markers, deletes) and feeds plain data in;
@@ -49,20 +49,65 @@ export function referencedRunDirs(manifest: Manifest | null): Map<string, string
   return refs;
 }
 
+// Issues = failed check steps + missing step diffs + style mismatches. One
+// definition, shared by the run list badge and the detail panel.
+export function countIssues(r: RunResult): number {
+  return (
+    r.steps.filter((s) => s.check && s.status === "failed").length +
+    r.stepDiffs.filter((sd) => sd.verdict === "missing").length +
+    r.regions.reduce((k, rg) => k + (rg.styleDiff?.filter((s) => !s.match).length ?? 0), 0)
+  );
+}
+
+export interface RunDetailEntry {
+  name: string;
+  mismatchPercent?: number;
+  heightDelta?: number; // px of page height that was not compared
+  bootstrap?: true;
+  issues: number;
+  failedSteps: { index: number; action: string; selector?: string; error?: string }[];
+  regions: {
+    name: string;
+    verdict: RegionVerdict;
+    reason: string;
+    mismatchPercent: number;
+    styleMismatches: { property: string; target: string | null; baseline: string | null }[];
+  }[];
+  stepDiffs: { name: string; verdict: StepDiffVerdict; mismatchPercent: number }[];
+}
+
+// What the dashboard shows when a run is expanded: the parts of summary.json a
+// reviewer acts on, without the artifact paths (those are served via /files/).
+export function buildRunDetail(summary: Summary): RunDetailEntry[] {
+  return summary.runs.map((r) => ({
+    name: r.name,
+    mismatchPercent: r.mismatchPercent,
+    heightDelta: r.heightDelta,
+    bootstrap: r.bootstrap,
+    issues: countIssues(r),
+    failedSteps: r.steps
+      .filter((s) => s.check && s.status === "failed")
+      .map((s) => ({ index: s.index, action: s.action, selector: s.selector, error: s.error })),
+    regions: r.regions.map((rg) => ({
+      name: rg.name,
+      verdict: rg.verdict,
+      reason: rg.reason,
+      mismatchPercent: rg.mismatchPercent,
+      styleMismatches: (rg.styleDiff ?? [])
+        .filter((s) => !s.match)
+        .map((s) => ({ property: s.property, target: s.target, baseline: s.baseline })),
+    })),
+    stepDiffs: r.stepDiffs.map((d) => ({ name: d.name, verdict: d.verdict, mismatchPercent: d.mismatchPercent })),
+  }));
+}
+
 export function buildRunIndex(dirs: RunDirInfo[], refs: Map<string, string[]>): RunIndexEntry[] {
   const index = dirs.map((d): RunIndexEntry => {
     const runs = d.summary?.runs ?? [];
     const worst = runs.reduce((m, r) => Math.max(m, r.mismatchPercent ?? 0), 0);
     // Thumbnail: the worst entry's main diff; bootstrap runs have no diff → target.
     const worstRun = runs.slice().sort((a, b) => (b.mismatchPercent ?? -1) - (a.mismatchPercent ?? -1))[0];
-    const issues = runs.reduce(
-      (n, r) =>
-        n +
-        r.steps.filter((s) => s.check && s.status === "failed").length +
-        r.stepDiffs.filter((sd) => sd.verdict === "missing").length +
-        r.regions.reduce((k, rg) => k + (rg.styleDiff?.filter((s) => !s.match).length ?? 0), 0),
-      0,
-    );
+    const issues = runs.reduce((n, r) => n + countIssues(r), 0);
     return {
       dirName: d.dirName,
       mtimeMs: d.mtimeMs,

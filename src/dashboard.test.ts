@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { referencedRunDirs, buildRunIndex, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { referencedRunDirs, buildRunIndex, buildRunDetail, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -190,5 +190,53 @@ describe("buildBaselineIndex", () => {
   });
   it("is empty for a null manifest", () => {
     expect(buildBaselineIndex(null, allThere)).toEqual([]);
+  });
+});
+
+describe("buildRunDetail", () => {
+  const noisy = run({
+    name: "page", mismatchPercent: 3.2, heightDelta: -40,
+    steps: [
+      { index: 1, action: "click", selector: "#a", check: true, status: "ok" },
+      { index: 2, action: "click", selector: "#b", check: true, status: "failed", error: "not found" },
+      { index: 3, action: "screenshot", check: false, status: "failed", error: "ignored: not a check" },
+    ],
+    stepDiffs: [
+      { name: "01-open", mismatchPercent: 0.4, verdict: "ok" },
+      { name: "02-gone", mismatchPercent: 0, verdict: "missing" },
+    ],
+    regions: [
+      { name: "bar", mismatchPixels: 9, mismatchPercent: 7, verdict: "fail", reason: "content" },
+      { name: "hdr", mismatchPixels: 0, mismatchPercent: 0, verdict: "pass", reason: "content",
+        styleDiff: [
+          { property: "color", target: "red", baseline: "blue", match: false },
+          { property: "padding", target: "1px", baseline: "1px", match: true },
+        ] },
+    ],
+  });
+
+  it("keeps only what needs attention: failed check steps, style mismatches, step diffs with their verdict", () => {
+    const [d] = buildRunDetail(summary([noisy]));
+    expect(d.name).toBe("page");
+    expect(d.mismatchPercent).toBe(3.2);
+    expect(d.heightDelta).toBe(-40);
+    expect(d.failedSteps).toEqual([{ index: 2, action: "click", selector: "#b", error: "not found" }]);
+    expect(d.regions.map((r) => [r.name, r.verdict, r.styleMismatches.length])).toEqual([["bar", "fail", 0], ["hdr", "pass", 1]]);
+    expect(d.regions[1].styleMismatches).toEqual([{ property: "color", target: "red", baseline: "blue" }]);
+    expect(d.stepDiffs.map((s) => s.verdict)).toEqual(["ok", "missing"]);
+  });
+  it("counts issues the same way the run list does", () => {
+    const sum = summary([noisy]);
+    const [d] = buildRunDetail(sum);
+    const [row] = buildRunIndex([dir({ summary: sum })], new Map());
+    expect(d.issues).toBe(row.issues);
+    expect(d.issues).toBe(3); // 1 failed check + 1 missing step diff + 1 style mismatch
+  });
+  it("marks a bootstrap entry and tolerates absent mismatch fields", () => {
+    const [d] = buildRunDetail(summary([run({ bootstrap: true, mismatchPercent: undefined, heightDelta: undefined })]));
+    expect(d.bootstrap).toBe(true);
+    expect(d.mismatchPercent).toBeUndefined();
+    expect(d.heightDelta).toBeUndefined();
+    expect(d.issues).toBe(0);
   });
 });

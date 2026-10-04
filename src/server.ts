@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
-import { buildRunIndex, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { buildRunIndex, buildRunDetail, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, type Manifest } from "./baselines";
 import type { Summary } from "./types";
@@ -115,6 +115,17 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
 
       if (req.method === "GET" && url.pathname === "/api/runs") {
         return json(currentIndex(o));
+      }
+
+      // GET /api/runs/<dirName>/detail — the reviewable parts of one run's summary.json.
+      if (req.method === "GET" && parts[0] === "api" && parts[1] === "runs" && parts[3] === "detail" && parts.length === 4) {
+        const dir = dirSegment(parts[2]);
+        if (!dir) return new Response("forbidden", { status: 403 });
+        const abs = join(o.outDirAbs, dir);
+        if (!existsSync(abs)) return json({ error: "run dir not found" }, 404);
+        const summary = readSummary(abs);
+        if (!summary) return json({ error: "run has no readable summary.json" }, 404);
+        return json(buildRunDetail(summary));
       }
 
       // Approved baselines from the manifest (re-read per request), flagging missing artifacts.

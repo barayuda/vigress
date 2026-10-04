@@ -373,6 +373,7 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 |--------|------|-------------|
 | `GET` | `/` | Dashboard HTML page. |
 | `GET` | `/api/runs` | JSON array of all run-dir entries (sorted newest-first). |
+| `GET` | `/api/runs/<dir>/detail` | The reviewable parts of one run's `summary.json`, one entry per comparison: `name`, `mismatchPercent`, `heightDelta`, `bootstrap`, `issues`, `failedSteps[]`, `regions[]` (with `styleMismatches`) and `stepDiffs[]`. `404` if the dir is missing or has no readable summary. The page shows it under **Details**. |
 | `GET` | `/api/baselines` | JSON array of approved baselines from `baselines/manifest.json` (sorted by name): `name`, `approvedAt`, `approvedFrom`, `viewport`, `sourceUrl`, `fullPage`, `stepCount`, `missing` (artifact paths no longer on disk). Re-read per request. |
 | `GET` | `/files/<run>/<path>` | Serves an artifact from `out/<run>/`. Path-traversal guarded (lexical + realpath symlink check); dot-prefixed path segments (e.g. `.keep`, `.approved`) are refused with `403`; returns `403` on any escape attempt. |
 | `POST` | `/api/runs/<dir>/keep` | Toggles the `.keep` marker file in the run dir. Returns `{ keep: true|false }`. |
