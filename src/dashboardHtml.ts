@@ -30,6 +30,11 @@ export function buildDashboardHtml(): string {
   table.bl{border-collapse:collapse;background:#fff;border:1px solid #dcdfe4;border-radius:6px;margin:8px 24px 24px;width:calc(100% - 48px);font-size:13px}
   table.bl th,table.bl td{text-align:left;padding:6px 10px;border-bottom:1px solid #ebf0f1}
   table.bl .bad{color:#b42318}
+  .detail{background:#fff;border:1px solid #dcdfe4;border-radius:6px;margin:-4px 24px 12px;padding:10px 16px;font-size:13px}
+  .detail h3{margin:8px 0 2px;font-size:13px}
+  .detail .bad{color:#b42318}
+  .detail .ok{color:#067647}
+  .detail ul{margin:2px 0 4px;padding-left:18px}
   .actions{display:flex;gap:8px;flex-shrink:0}
   button{font:inherit;padding:5px 12px;border:1px solid #dcdfe4;border-radius:5px;background:#fff;cursor:pointer}
   button:hover{background:#f1f5f9}
@@ -62,6 +67,29 @@ let index = [];
 async function load() {
   index = await (await fetch("/api/runs")).json();
   render();
+}
+
+function renderDetail(panel, entries) {
+  const list = (items) => { const ul = el("ul"); for (const t of items) ul.appendChild(el("li", null, t)); return ul; };
+  for (const e of entries) {
+    panel.appendChild(el("h3", null, e.name +
+      (e.bootstrap ? " (bootstrap)" : e.mismatchPercent !== undefined ? " — " + e.mismatchPercent + "%" : "") +
+      (e.heightDelta ? " · height " + (e.heightDelta > 0 ? "+" : "") + e.heightDelta + "px not compared" : "")));
+    if (!e.issues && !e.regions.length && !e.stepDiffs.length) { panel.appendChild(el("div", "ok", "nothing to review")); continue; }
+    if (e.failedSteps.length) {
+      panel.appendChild(el("div", "bad", "failed steps"));
+      panel.appendChild(list(e.failedSteps.map((s) => "#" + s.index + " " + s.action + (s.selector ? " " + s.selector : "") + (s.error ? " — " + s.error : ""))));
+    }
+    if (e.regions.length) {
+      panel.appendChild(el("div", null, "regions"));
+      panel.appendChild(list(e.regions.map((g) => g.name + ": " + g.verdict + " (" + g.reason + ", " + g.mismatchPercent + "%)" +
+        g.styleMismatches.map((s) => " · " + s.property + " " + s.target + " ≠ " + s.baseline).join(""))));
+    }
+    if (e.stepDiffs.length) {
+      panel.appendChild(el("div", null, "step diffs"));
+      panel.appendChild(list(e.stepDiffs.map((d) => d.name + ": " + d.verdict + " (" + d.mismatchPercent + "%)")));
+    }
+  }
 }
 
 function render() {
@@ -119,6 +147,22 @@ function render() {
       };
       actions.appendChild(approveBtn);
     }
+    let panel = null;
+    if (!r.unreadable) {
+      panel = el("div", "detail");
+      panel.hidden = true;
+      const detailBtn = el("button", null, "Details");
+      detailBtn.onclick = async () => {
+        if (!panel.hidden) { panel.hidden = true; return; }
+        if (!panel.hasChildNodes()) {
+          const res = await fetch("/api/runs/" + encodeURIComponent(r.dirName) + "/detail");
+          if (!res.ok) { alert("No details: " + (await res.json()).error); return; }
+          renderDetail(panel, await res.json());
+        }
+        panel.hidden = false;
+      };
+      actions.appendChild(detailBtn);
+    }
     const keepBtn = el("button", null, r.keep ? "Unkeep" : "Keep");
     keepBtn.onclick = async () => {
       await fetch("/api/runs/" + encodeURIComponent(r.dirName) + "/keep", { method: "POST" });
@@ -137,6 +181,7 @@ function render() {
     actions.appendChild(delBtn);
     row.appendChild(actions);
     root.appendChild(row);
+    if (panel) root.appendChild(panel);
   }
 }
 
