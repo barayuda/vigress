@@ -80,6 +80,50 @@ export function upsertBaseline(manifest: Manifest, name: string, entry: Manifest
   return { ...manifest, baselines: { ...manifest.baselines, [name]: entry } };
 }
 
+// Summaries older than this don't record how they were captured (fullPage), so
+// approving them could bless a baseline that later never matches.
+export const MIN_APPROVE_SCHEMA = 8;
+
+export type ApproveResult =
+  | { ok: true; manifest: Manifest; approved: RunResult[] }
+  | { ok: false; message: string };
+
+// The one set of approve rules, shared by `vigress approve` and the dashboard.
+// `which` is a run name, or null for every run in the summary; `targetExists` gets the run's target path
+// (relative to the run dir) so the disk check stays with the caller.
+export function approveRuns(
+  manifest: Manifest,
+  summary: Summary,
+  runDirRel: string,
+  which: string | null,
+  targetExists: (targetRel: string) => boolean,
+  approvedAt: string,
+): ApproveResult {
+  if (summary.schemaVersion < MIN_APPROVE_SCHEMA) {
+    return {
+      ok: false,
+      message: `${runDirRel} was written by an older vigress (schema ${summary.schemaVersion}) — re-run the comparison first`,
+    };
+  }
+  const approved = which === null ? summary.runs : summary.runs.filter((r) => r.name === which);
+  if (!approved.length) {
+    return {
+      ok: false,
+      message: which === null
+        ? `no runs found in ${runDirRel}`
+        : `run '${which}' not in ${runDirRel} — has: ${summary.runs.map((r) => r.name).join(", ")}`,
+    };
+  }
+  let next = manifest;
+  for (const run of approved) {
+    if (!targetExists(run.target)) {
+      return { ok: false, message: `target capture missing for '${run.name}' (${join(runDirRel, run.target)})` };
+    }
+    next = upsertBaseline(next, run.name, buildManifestEntry(run, runDirRel, approvedAt));
+  }
+  return { ok: true, manifest: next, approved };
+}
+
 export type ResolveResult =
   | { ok: true; entry: ManifestEntry }
   | { ok: false; code: 1 | 2; missingEntry?: true; message: string };

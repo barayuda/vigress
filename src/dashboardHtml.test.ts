@@ -12,6 +12,9 @@ describe("buildDashboardHtml", () => {
     expect(html).toContain("/api/cleanup");
     expect(html).toContain("/files/");
   });
+  it("wires the approve action", () => {
+    expect(html).toContain("/approve");
+  });
   it("has a baselines section wired to its API", () => {
     expect(html).toContain('id="baselines"');
     expect(html).toContain('fetch("/api/baselines")');

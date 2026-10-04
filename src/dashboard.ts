@@ -118,6 +118,36 @@ export function cleanupSelection(index: RunIndexEntry[]): RunIndexEntry[] {
   return index.filter((e) => !e.keep && e.lockedBy.length === 0);
 }
 
+export interface WriteRequest {
+  origin: string | null; // Origin header
+  host: string | null; // Host header
+  tailscaleLogin: string | null; // Tailscale-User-Login, set by `tailscale serve`
+  writers: string[]; // allowlisted Tailscale logins (VIGRESS_DASHBOARD_WRITERS)
+}
+
+// Gate for every state-changing route (keep, delete, cleanup, approve).
+// The server only listens on 127.0.0.1, so a request is either direct and local
+// (no Tailscale header) or proxied by `tailscale serve`, which adds the caller's
+// login. A browser Origin must match the Host so another page can't drive it.
+export function isWriteAllowed(r: WriteRequest): { ok: true } | { ok: false; reason: string } {
+  if (r.origin !== null) {
+    let originHost: string | null = null;
+    try {
+      originHost = new URL(r.origin).host;
+    } catch {
+      /* unparseable Origin is rejected below */
+    }
+    if (originHost === null || originHost !== r.host) return { ok: false, reason: "cross-origin request refused" };
+  }
+  if (r.tailscaleLogin !== null) {
+    const login = r.tailscaleLogin.toLowerCase();
+    if (!r.writers.some((w) => w.toLowerCase() === login)) {
+      return { ok: false, reason: `${r.tailscaleLogin} is not allowed to make changes (set VIGRESS_DASHBOARD_WRITERS)` };
+    }
+  }
+  return { ok: true };
+}
+
 // decodeURIComponent throws on malformed %-sequences; callers map null to 403.
 export function safeDecode(s: string): string | null {
   try {
