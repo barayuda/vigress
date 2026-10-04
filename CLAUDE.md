@@ -56,7 +56,7 @@ The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `ou
 
 1. Bump `SCHEMA_VERSION` in `src/types.ts`.
 2. Update the README's schema docs (it has drifted before).
-3. Update `skills/vigress/SKILL.md` (the agent-facing doc, symlinked into `~/.claude/skills`) and `skills/vigress/PLAYBOOK.md`. Keep these **project-agnostic** — no app-specific routes or hostnames.
+3. Update `skills/vigress/SKILL.md` (the agent-facing doc, symlinked into `~/.claude/skills`) and `skills/vigress/PLAYBOOK.md`. Keep these **project-agnostic** — no app-specific routes or hostnames. The baseline/approve flow is documented once, in `SKILL.md` ("Baseline snapshots"); `PLAYBOOK.md` points to it instead of repeating it.
 
 ### Config surface
 

@@ -116,52 +116,16 @@ the page has animation or the auto-explore triggers noise).
 | `networkidle` never settles — MQTT/long-poll connections keep the network busy | `vigress` proceeds after a timeout; this is expected behavior. The capture is taken after the page-load timeout, not strictly at networkidle. No action needed; note it in the run context. |
 | Font anti-aliasing/sub-pixel rendering differs between environments | Set a per-region `maxMismatch` tolerance (e.g. `"maxMismatch": 1`) rather than 0. A threshold of 0 will fail on any sub-pixel AA difference. |
 | Scrollbar width differs between OS/browser (adds ~15px to layout) | Use `clip` to stay inside the content area and exclude the scrollbar gutter, or add a mask targeting the scrollbar region. |
+| Content below the fold is never compared, or its regions come out `unresolved` | A viewport capture only covers the first screen. Use `--full-page` (or `"fullPage": true`); `clip` is ignored in that mode. |
+| Lazy images or scroll-triggered sections are blank in a `--full-page` capture | vigress scrolls the page first and pins `[data-aos]` elements. Other scroll-reveal libraries are not handled: mask the affected block, or scope the check to a region that does not depend on it. |
+| `heightDelta` is non-zero on a full-page run | The two pages have different heights and only the common top area was diffed. Treat it as a finding (extra or missing section), or gate it with `--max-height-delta <px>` once the difference is understood. |
+| Very tall page is cut off in a full-page capture | The scroll-through is capped at 60 viewports. Check the screenshot's bottom edge; scope the check with regions instead of relying on the whole page. |
 
 ---
 
 ## Parity → bless → regression
 
-After a successful parity check (target vs staging/Figma), switch to self-regression
-to guard against future regressions without re-comparing to the original reference.
-
-### 1 — Parity check
-
-Run the full check against the reference (staging URL or Figma baseline) and confirm
-all regions and steps pass to your satisfaction.
-
-### 2 — Bless the run
-
-```bash
-# Approve by name (auto-finds the newest run)
-bun run src/cli.ts approve <name>
-
-# Or bootstrap via --update-baseline (no separate approve step needed)
-bun run src/cli.ts --config <page>.fullcheck.json --state auth.state.json --update-baseline
-```
-
-`approve` writes `baselines/manifest.json` — commit it. The approved `out/<timestamp>/`
-dir must not be deleted (it holds the artifacts the manifest points at).
-
-> **CI footgun:** `--update-baseline` blesses the run even when a gate trips (the run
-> still exits 1, but the manifest now points at the failing state) — never leave it
-> permanently enabled in CI; use it deliberately for bootstrap and re-blessing only.
-
-### 3 — Regression config
-
-Change `against` to `baseline:<name>` in the config (or use a separate regression config):
-
-```json
-{ "name": "contact", "target": "https://app.example.com/contact", "against": "baseline:contact" }
-```
-
-Run with gates: `--max-mismatch 2 --require-steps`. Step diffs against approved screenshots
-populate `stepDiffs[]` — `new` verdicts never trip gates; `missing` trips `--require-steps`.
-
-### Step-diff verdict matrix
-
-| Verdict | Condition | Gate |
-|---------|-----------|------|
-| `ok` | Step in run and manifest, within `--max-mismatch` | none |
-| `mismatch` | Step over `--max-mismatch` | trips `--max-mismatch` |
-| `new` | Step added since approval | **never gates** |
-| `missing` | Approved step absent from run | trips `--require-steps` |
+The flow (approve, `baseline:` refs, `--update-baseline`, step-diff verdicts and
+the CI warning) lives in one place: **SKILL.md → "Baseline snapshots"**. This
+playbook only adds the archetype checklists above and the noise catalog; use
+those regions and masks in the regression config too.
