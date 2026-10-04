@@ -46,6 +46,11 @@ export function buildDashboardHtml(): string {
   .viewer .slider{position:relative}
   .viewer .slider .top{position:absolute;top:0;left:0}
   .viewer input[type=range]{width:100%;margin:6px 0 0}
+  .runbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 24px 0;font-size:13px}
+  .runbar select{font:inherit;padding:5px 8px;border:1px solid #dcdfe4;border-radius:5px;max-width:320px}
+  .runbar .bad{color:#b42318}
+  .runbar .ok{color:#067647}
+  pre.tail{margin:6px 24px 0;padding:8px 12px;background:#fff;border:1px solid #dcdfe4;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-word}
   .filters{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 24px;font-size:13px}
   .filters input[type=search]{font:inherit;padding:5px 10px;border:1px solid #dcdfe4;border-radius:5px;min-width:220px}
   .filters input[type=number]{font:inherit;padding:5px 6px;border:1px solid #dcdfe4;border-radius:5px;width:64px}
@@ -64,6 +69,12 @@ export function buildDashboardHtml(): string {
   <div class="sum" id="summary">loading…</div>
   <button class="danger" id="cleanup">Cleanup</button>
 </header>
+<div class="runbar">
+  <label>Run a saved config <select id="cfg"></select></label>
+  <button id="run">Run</button>
+  <span id="jobstatus"></span>
+</div>
+<pre class="tail" id="jobtail" hidden></pre>
 <div class="filters">
   <input type="search" id="q" placeholder="Filter by run or name…">
   <label><input type="checkbox" id="f-issues"> has issues</label>
@@ -331,6 +342,72 @@ document.getElementById("cleanup").onclick = async () => {
   load();
 };
 
+// --- run a saved config (one job at a time; the server enforces it) ---
+let polling = null;
+const statusEl = document.getElementById("jobstatus");
+const tailEl = document.getElementById("jobtail");
+
+async function loadConfigs() {
+  const { configs } = await (await fetch("/api/configs")).json();
+  const sel = document.getElementById("cfg");
+  sel.replaceChildren();
+  for (const c of configs) { const o = document.createElement("option"); o.value = c; o.textContent = c; sel.appendChild(o); }
+  document.getElementById("run").disabled = configs.length === 0;
+  if (!configs.length) { const o = document.createElement("option"); o.textContent = "no *.fullcheck.json in the repo root"; sel.appendChild(o); }
+}
+
+const canRun = () => document.getElementById("cfg").value.endsWith(".fullcheck.json");
+
+function showJob(data) {
+  const j = data.job;
+  const runBtn = document.getElementById("run");
+  statusEl.replaceChildren();
+  tailEl.hidden = true;
+  if (!j) { runBtn.disabled = !canRun(); return false; }
+  const running = j.state === "running";
+  runBtn.disabled = running || !canRun();
+  if (running) {
+    statusEl.appendChild(el("span", null, "running " + j.config + " since " + new Date(j.startedAt).toLocaleTimeString() + "…"));
+    return true;
+  }
+  statusEl.appendChild(el("span", j.state === "done" ? "ok" : "bad",
+    (j.state === "done" ? "finished " : "failed: ") + j.config +
+    (j.state === "failed" ? " (" + (j.error || "exit " + j.exitCode) + ")" : "")));
+  if (data.runDir) {
+    const a = el("a", "report", " open report");
+    a.href = "/files/" + encodeURIComponent(data.runDir) + "/report.html";
+    a.target = "_blank";
+    statusEl.appendChild(a);
+  }
+  if (j.state === "failed" && j.tail.length) { tailEl.textContent = j.tail.join("\\n"); tailEl.hidden = false; }
+  return false;
+}
+
+async function pollJob() {
+  const data = await (await fetch("/api/jobs")).json();
+  const running = showJob(data);
+  if (!running && polling) { clearInterval(polling); polling = null; load(); }
+  return running;
+}
+
+function startPolling() {
+  if (!polling) polling = setInterval(pollJob, 2000);
+}
+
+document.getElementById("run").onclick = async () => {
+  const config = document.getElementById("cfg").value;
+  if (!confirm("Run " + config + "? This launches a browser and visits the URLs in that file.")) return;
+  const res = await fetch("/api/jobs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ config }),
+  });
+  const body = await res.json();
+  if (!res.ok) { alert("Run refused: " + body.error); return; }
+  showJob(body);
+  startPolling();
+};
+
 let typing = null;
 document.getElementById("q").oninput = () => { clearTimeout(typing); typing = setTimeout(() => load(), 250); };
 for (const id of ["f-issues", "f-locked", "f-min"]) document.getElementById(id).onchange = () => load();
@@ -339,6 +416,8 @@ setInterval(() => {
 }, 5000);
 
 load();
+loadConfigs();
+pollJob().then((running) => { if (running) startPolling(); });
 </script>
 </body>
 </html>`;
