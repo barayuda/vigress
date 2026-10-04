@@ -55,8 +55,8 @@ Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
 `[{ "name","target","against","clip?","viewport?" }, …]`.
 
 ## For AI agents
-- Pass `--json`: stdout is a single object `{ schemaVersion: 8, outDir, reportHtml,
-  runs:[{ name, baselineType, viewport, mismatchPixels?, mismatchPercent?,
+- Pass `--json`: stdout is a single object `{ schemaVersion: 9, outDir, reportHtml,
+  runs:[{ name, baselineType, viewport, mismatchPixels?, mismatchPercent?, heightDelta?,
   target, targetUrl, fullPage?, baseline?, diff?, video?, bootstrap?,
   mode, shots:[], steps:[{index,action,selector?,check,status,error?}],
   stepDiffs:[{name,mismatchPercent,diff?,verdict:"ok"|"mismatch"|"new"|"missing"}],
@@ -70,11 +70,14 @@ Pass `--no-video` to skip the `.webm`, or set `"video": false` on a batch entry.
   `new` verdicts (steps added since approval) never trip any gate.
 - Each run writes to a **timestamped subfolder** — always take artifact paths
   from the JSON payload (`outDir` etc.), never assume `out/` directly.
-- Exit codes: `0` ok · `1` a gate tripped (`--max-mismatch`, `--require-steps`,
+- Exit codes: `0` ok · `1` a gate tripped (`--max-mismatch`, `--max-height-delta`, `--require-steps`,
   `--require-style`) or an unexpected error · `2` usage error.
 - `--quiet` to suppress chatter; `--max-mismatch <pct>` to make it exit non-zero
   (gate). The mismatch % is noisy (token/shell/render differences) — treat the
   diff image + video as the real signal, not a hard pass/fail, unless gating.
+- `heightDelta` (px, only when non-zero) is target height minus baseline height. The
+  diff compares just the common top area, so it is the part of the page that was NOT
+  compared — worth checking on `--full-page` runs. `--max-height-delta <px>` gates on it.
 - `--require-steps` exits non-zero if any functionality check step failed (any
   `steps[]` entry with `check: true` has `status: "failed"`). Combines with
   `--max-mismatch`.
@@ -230,7 +233,7 @@ CLI form: `--step "action=assert;selector=[role=dialog];state=visible"`.
 
 ### Per-step pass/fail results
 
-Each step reports a result. `summary.json` and `--json` are **schemaVersion 8**
+Each step reports a result. `summary.json` and `--json` are **schemaVersion 9**
 and include `mode`, `shots[]`, `steps[]`, and `stepDiffs[]` on each run entry.
 The `steps[]` shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
 

@@ -88,6 +88,22 @@ describe("diffWithRegions", () => {
     expect(res.regions[0].diff).toBe("r.left.diff.png");
   });
 
+  it("reports heightDelta (target minus baseline) before the diff crops to the shorter side", () => {
+    const t = writePng("ht.png", solid(10, 30, 255, 255, 255));
+    const b = writePng("hb.png", solid(10, 20, 255, 255, 255));
+    const res = diffWithRegions({
+      targetPath: t, baselinePath: b, diffPath: join(dir, "hfull.png"),
+      outDir: dir, name: "h", targetMaskBoxes: [], baselineMaskBoxes: [], regions: [],
+    });
+    expect(res.heightDelta).toBe(10);
+    expect(res.full.height).toBe(20); // still compared over the common area
+    const same = diffWithRegions({
+      targetPath: b, baselinePath: b, diffPath: join(dir, "hfull2.png"),
+      outDir: dir, name: "h2", targetMaskBoxes: [], baselineMaskBoxes: [], regions: [],
+    });
+    expect(same.heightDelta).toBe(0);
+  });
+
   it("marks a region unresolved when a side box is null", () => {
     const t = writePng("ut.png", solid(10, 10, 255, 255, 255));
     const b = writePng("ub.png", solid(10, 10, 255, 255, 255));

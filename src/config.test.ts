@@ -268,6 +268,13 @@ describe("baseline: refs", () => {
   });
 });
 
+describe("max-height-delta", () => {
+  it("parses into opts, undefined when absent", () => {
+    expect(buildRunConfig({ target: "http://x/a", against: "http://x/b", "max-height-delta": "20" }, {}).opts.maxHeightDelta).toBe(20);
+    expect(buildRunConfig({ target: "http://x/a", against: "http://x/b" }, {}).opts.maxHeightDelta).toBeUndefined();
+  });
+});
+
 describe("fullPage", () => {
   it("is off by default", () => {
     const { runs } = buildRunConfig({ target: "http://x/a", against: "http://x/b" }, {});

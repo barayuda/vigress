@@ -188,6 +188,7 @@ bun run src/cli.ts --config <file.json> [options]
 | `--json` | boolean | `false` | Print a compact JSON payload to stdout (and nothing else). |
 | `--quiet` | boolean | `false` | Suppress the per-comparison log lines. |
 | `--max-mismatch` | number (pct) | — | Exit non-zero if any comparison exceeds this %. |
+| `--max-height-delta` | number (px) | — | Exit non-zero if a run's target and baseline heights differ by more than this many px. The diff only covers the common top area, so the height difference is the part of the page that was **not** compared (reported as `heightDelta`). Mainly useful with `--full-page`. |
 | `--require-steps` | boolean | `false` | Exit non-zero if any functionality check step failed (i.e. any step with `check: true` has `status: "failed"`). Combines with `--max-mismatch`. |
 | `--require-style` | boolean | `false` | Exit non-zero if any region's `styleDiff` contains a `match: false` entry. See [Regions & masks](#regions--masks). |
 | `--config` | path | — | Run a batch of comparisons from a JSON file. |
@@ -210,7 +211,7 @@ bun run src/cli.ts --config <file.json> [options]
 - `dashboard [--port 4600] [--out out]` — starts the local artifact-manager dashboard (see [Dashboard](#dashboard)).
 
 **Exit codes:** `0` success · `1` a gate tripped (`--max-mismatch`,
-`--require-steps`, `--require-style`) or an unexpected error · `2` usage error
+`--max-height-delta`, `--require-steps`, `--require-style`) or an unexpected error · `2` usage error
 (missing required args).
 
 ---
@@ -610,12 +611,12 @@ functionality: X/Y checks passed
 
 where `X` is the count of `ok` check-steps and `Y` is the total check-steps.
 
-### New outputs (schemaVersion 6 / 7 / 8)
+### New outputs (schemaVersion 6 / 7 / 8 / 9)
 
-`summary.json` and the `--json` payload are **`schemaVersion: 8`** (v5
+`summary.json` and the `--json` payload are **`schemaVersion: 9`** (v5
 added `regions[].styleDiff`; v6 added the `assert` step action; v7 added
 `targetUrl`, `stepDiffs`, `bootstrap`, and made `baseline`/`diff`/mismatch
-fields optional; v8 added `fullPage`). Each run entry adds:
+fields optional; v8 added `fullPage`; v9 added `heightDelta`). Each run entry adds:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -650,7 +651,7 @@ video. It references the artifacts by relative path, so open it directly
 **`summary.json`** (artifact paths are **relative** to `outDir`):
 ```json
 {
-  "schemaVersion": 8,
+  "schemaVersion": 9,
   "outDir": "/abs/path/out",
   "reportHtml": "report.html",
   "summaryJson": "summary.json",
@@ -681,6 +682,8 @@ video. It references the artifacts by relative path, so open it directly
 }
 ```
 
+**v9 schema changes** (from v8): each `RunResult` may carry `heightDelta` (number, px) — target PNG height minus baseline PNG height, present only when non-zero. The pixel diff crops both images to the shorter one, so this is how much of the page went uncompared. Gate on it with `--max-height-delta`.
+
 **v8 schema changes** (from v7): each `RunResult` gains `fullPage?: true`, present when the run was captured with `--full-page`. `approve` records it in the manifest and `baseline:` runs must match it. `approve` refuses summaries older than v8, so re-run the comparison first.
 
 **v7 schema changes** (from v6): each `RunResult` gains `targetUrl` (string — the captured URL, used by `approve` to record `sourceUrl` in the manifest) and `stepDiffs` (array of `{ name, mismatchPercent, diff?, verdict: "ok"|"mismatch"|"new"|"missing" }` — step screenshot regressions against an approved `baseline:` run). `bootstrap?: true` marks a first approval run (no prior baseline to diff against). On bootstrap runs, `baseline`, `diff`, `mismatchPixels`, and `mismatchPercent` are absent (they are optional from v7 onward).
@@ -696,7 +699,7 @@ shape as `summary.json` but with **absolute** artifact paths, ready to read:
 bun run src/cli.ts --target … --against … --state auth.state.json --json --quiet
 ```
 ```json
-{ "schemaVersion": 8, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
+{ "schemaVersion": 9, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
   "summaryJson": "/abs/out/summary.json",
   "runs": [ { "name": "contact", "baselineType": "url", "viewport": {"width":1440,"height":900},
               "mismatchPixels": 12345, "mismatchPercent": 4.2,
@@ -809,7 +812,7 @@ parse args/env → resolve baseline: refs from the manifest (guards fail fast, n
   → step diffs vs approved step shots (baseline: runs only)
   → close context (flush video)
 → write summary.json + report.html → (--update-baseline: approve results into the manifest)
-→ (with --json) print payload → exit code (gates: --max-mismatch / --require-steps / --require-style)
+→ (with --json) print payload → exit code (gates: --max-mismatch / --max-height-delta / --require-steps / --require-style)
 ```
 
 Pure logic (diff, config parsing, baseline-type detection, Figma-ref parsing,

@@ -121,3 +121,10 @@ describe("buildJsonPayload fullPage", () => {
     expect(p.runs[0].fullPage).toBe(true);
   });
 });
+
+describe("buildJsonPayload heightDelta", () => {
+  it("passes heightDelta through", () => {
+    const p = buildJsonPayload({ ...summary, runs: [{ ...summary.runs[0], heightDelta: -42 }] }) as any;
+    expect(p.runs[0].heightDelta).toBe(-42);
+  });
+});

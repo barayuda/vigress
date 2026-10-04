@@ -81,6 +81,7 @@ export interface GlobalOpts {
   json: boolean;
   quiet: boolean;
   maxMismatch?: number;
+  maxHeightDelta?: number;
   threshold: number;
   updateBaseline: boolean;
 }
@@ -286,6 +287,7 @@ export function buildRunConfig(
     json: values.json === true,
     quiet: values.quiet === true,
     maxMismatch: str("max-mismatch") !== undefined ? Number(str("max-mismatch")) : undefined,
+    maxHeightDelta: str("max-height-delta") !== undefined ? Number(str("max-height-delta")) : undefined,
     threshold: str("threshold") !== undefined ? Number(str("threshold")) : 0.1,
     updateBaseline: values["update-baseline"] === true,
   };
