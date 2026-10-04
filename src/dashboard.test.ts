@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { referencedRunDirs, buildRunIndex, buildRunDetail, fileUrl, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { referencedRunDirs, buildRunIndex, buildRunDetail, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -261,5 +261,51 @@ describe("buildRunDetail images", () => {
   it("omits baseline, diff and video when the run has none (bootstrap)", () => {
     const [d] = buildRunDetail(summary([run({ bootstrap: true, baseline: undefined, diff: undefined })]), "run-x");
     expect(d.images).toEqual({ target: "/files/run-x/page.target.png" });
+  });
+});
+
+describe("parseRunFilter", () => {
+  const p = (q: string) => parseRunFilter(new URLSearchParams(q));
+  it("reads text, issues, locked and a numeric minimum", () => {
+    expect(p("q=%20Contact%20&issues=1&locked=1&min=2.5")).toEqual({ text: "contact", issues: true, locked: true, min: 2.5 });
+  });
+  it("is empty when nothing is given, and ignores junk", () => {
+    expect(p("")).toEqual({});
+    expect(p("issues=0&locked=yes&min=abc&q=%20%20")).toEqual({});
+    expect(p("min=-3")).toEqual({});
+  });
+});
+
+describe("filterRuns", () => {
+  const idx = buildRunIndex(
+    [
+      dir({ dirName: "2026-10-01_a", relPath: "out/2026-10-01_a", mtimeMs: 5, summary: summary([run({ name: "contact", mismatchPercent: 0.5 })]) }),
+      dir({ dirName: "2026-10-02_b", relPath: "out/2026-10-02_b", mtimeMs: 4, summary: summary([run({ name: "billing", mismatchPercent: 9,
+        steps: [{ index: 1, action: "click", selector: "#x", check: true, status: "failed", error: "e" }] })]) }),
+      dir({ dirName: "2026-10-03_c", relPath: "out/2026-10-03_c", mtimeMs: 3, summary: null }),
+      dir({ dirName: "2026-10-04_d", relPath: "out/2026-10-04_d", mtimeMs: 2, summary: summary([run({ name: "contact", mismatchPercent: 3 })]) }),
+    ],
+    new Map([["out/2026-10-04_d", ["contact"]]]),
+  );
+  const names = (f: Parameters<typeof filterRuns>[1]) => filterRuns(idx, f).map((e) => e.dirName);
+
+  it("returns everything, in order, for an empty filter", () => {
+    expect(names({})).toEqual(["2026-10-01_a", "2026-10-02_b", "2026-10-03_c", "2026-10-04_d"]);
+  });
+  it("matches text against the run dir name or any entry name, case-insensitively", () => {
+    expect(names({ text: "contact" })).toEqual(["2026-10-01_a", "2026-10-04_d"]);
+    expect(names({ text: "10-02" })).toEqual(["2026-10-02_b"]);
+    expect(names({ text: "nope" })).toEqual([]);
+  });
+  it("issues keeps only runs with issues; locked only baseline-referenced runs", () => {
+    expect(names({ issues: true })).toEqual(["2026-10-02_b"]);
+    expect(names({ locked: true })).toEqual(["2026-10-04_d"]);
+  });
+  it("min keeps runs whose worst mismatch is at least that percent", () => {
+    expect(names({ min: 3 })).toEqual(["2026-10-02_b", "2026-10-04_d"]);
+  });
+  it("combines every condition (AND)", () => {
+    expect(names({ text: "contact", min: 3 })).toEqual(["2026-10-04_d"]);
+    expect(names({ text: "contact", issues: true })).toEqual([]);
   });
 });

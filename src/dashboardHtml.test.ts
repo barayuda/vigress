@@ -21,6 +21,11 @@ describe("buildDashboardHtml", () => {
     expect(html).toContain("Slider");
     expect(html).toContain('"range"');
   });
+  it("has filter controls and auto-refresh wired to the runs API", () => {
+    expect(html).toContain('id="q"');
+    expect(html).toContain("Auto-refresh");
+    expect(html).toContain('"/api/runs?"');
+  });
   it("wires the approve action", () => {
     expect(html).toContain("/approve");
   });

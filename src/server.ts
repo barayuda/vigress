@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
-import { buildRunIndex, buildRunDetail, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { buildRunIndex, buildRunDetail, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, type Manifest } from "./baselines";
 import type { Summary } from "./types";
@@ -114,7 +114,7 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
       }
 
       if (req.method === "GET" && url.pathname === "/api/runs") {
-        return json(currentIndex(o));
+        return json(filterRuns(currentIndex(o), parseRunFilter(url.searchParams)));
       }
 
       // GET /api/runs/<dirName>/detail — the reviewable parts of one run's summary.json.

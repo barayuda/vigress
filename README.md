@@ -372,7 +372,7 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | Dashboard HTML page. |
-| `GET` | `/api/runs` | JSON array of all run-dir entries (sorted newest-first). |
+| `GET` | `/api/runs` | JSON array of run-dir entries (sorted newest-first). Optional filters, combined with AND: `q=<text>` (run dir or entry name, case-insensitive), `issues=1`, `locked=1`, `min=<pct>` (worst mismatch at least this). Unknown values are ignored, so a bad filter never hides runs. |
 | `GET` | `/api/runs/<dir>/detail` | The reviewable parts of one run's `summary.json`, one entry per comparison: `name`, `images` (ready `/files/…` URLs: `target`, and `baseline`/`diff`/`video` when present), `mismatchPercent`, `heightDelta`, `bootstrap`, `issues`, `failedSteps[]`, `regions[]` (with `styleMismatches`) and `stepDiffs[]`. `404` if the dir is missing or has no readable summary. The page shows it under **Details**, with a side-by-side / slider comparison of baseline, target and diff. |
 | `GET` | `/api/baselines` | JSON array of approved baselines from `baselines/manifest.json` (sorted by name): `name`, `approvedAt`, `approvedFrom`, `viewport`, `sourceUrl`, `fullPage`, `stepCount`, `missing` (artifact paths no longer on disk). Re-read per request. |
 | `GET` | `/files/<run>/<path>` | Serves an artifact from `out/<run>/`. Path-traversal guarded (lexical + realpath symlink check); dot-prefixed path segments (e.g. `.keep`, `.approved`) are refused with `403`; returns `403` on any escape attempt. |
@@ -380,6 +380,10 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 | `DELETE` | `/api/runs/<dir>` | Deletes the run dir. Returns `{ "deleted": "<dir>" }` on success; `403` + `{ lockedBy }` if the dir is referenced by `baselines/manifest.json`; `404` if the dir has already vanished. |
 | `POST` | `/api/runs/<dir>/approve` | Approves a run's captures as the baseline: body `{ "name": "<run>" }` or `{ "all": true }`. Same rules as `vigress approve` (summary schema ≥ 8, target capture present). Returns `{ approved: string[], from }`; `400` + `{ error }` on a rule failure; `500` if `baselines/manifest.json` is unreadable (it is never replaced by an empty one). The run dir becomes manifest-locked. |
 | `POST` | `/api/cleanup` | Bulk-deletes every run dir that is neither `.keep`-marked nor referenced by the manifest. Returns `{ deleted: string[], freedBytes: number }`. |
+
+### Filtering and auto-refresh
+
+The page has a filter box and checkboxes (has issues, baseline-locked, worst mismatch ≥ N %) that map onto the `/api/runs` query above, and an **Auto-refresh** toggle that re-polls every 5 seconds and only re-renders when the list changed. Open **Details** panels stay open across refreshes. **Cleanup** always lists the unfiltered set in its confirmation, because the server deletes every run that is neither kept nor locked, whatever the list is filtered to.
 
 ### Who may make changes
 
