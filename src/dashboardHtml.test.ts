@@ -16,6 +16,11 @@ describe("buildDashboardHtml", () => {
     expect(html).toContain("Details");
     expect(html).toContain("/detail");
   });
+  it("has a side-by-side and slider comparison viewer", () => {
+    expect(html).toContain("Side by side");
+    expect(html).toContain("Slider");
+    expect(html).toContain('"range"');
+  });
   it("wires the approve action", () => {
     expect(html).toContain("/approve");
   });

@@ -59,8 +59,15 @@ export function countIssues(r: RunResult): number {
   );
 }
 
+// URL of an artifact the server's /files/ route serves: each segment encoded,
+// slashes kept. The one place that rule lives (the page gets finished URLs).
+export function fileUrl(dirName: string, relPath: string): string {
+  return "/files/" + [dirName, ...relPath.split("/")].map(encodeURIComponent).join("/");
+}
+
 export interface RunDetailEntry {
   name: string;
+  images: { target: string; baseline?: string; diff?: string; video?: string };
   mismatchPercent?: number;
   heightDelta?: number; // px of page height that was not compared
   bootstrap?: true;
@@ -78,9 +85,15 @@ export interface RunDetailEntry {
 
 // What the dashboard shows when a run is expanded: the parts of summary.json a
 // reviewer acts on, without the artifact paths (those are served via /files/).
-export function buildRunDetail(summary: Summary): RunDetailEntry[] {
+export function buildRunDetail(summary: Summary, dirName: string): RunDetailEntry[] {
   return summary.runs.map((r) => ({
     name: r.name,
+    images: {
+      target: fileUrl(dirName, r.target),
+      ...(r.baseline ? { baseline: fileUrl(dirName, r.baseline) } : {}),
+      ...(r.diff ? { diff: fileUrl(dirName, r.diff) } : {}),
+      ...(r.video ? { video: fileUrl(dirName, r.video) } : {}),
+    },
     mismatchPercent: r.mismatchPercent,
     heightDelta: r.heightDelta,
     bootstrap: r.bootstrap,
