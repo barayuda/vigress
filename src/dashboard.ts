@@ -170,6 +170,36 @@ export function buildBaselineIndex(manifest: Manifest | null, exists: (relPath: 
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export interface RunFilter {
+  text?: string; // lowercased; matches the run dir name or any entry name
+  issues?: true; // only runs with issues
+  locked?: true; // only baseline-referenced runs
+  min?: number; // only runs whose worst mismatch is at least this percent
+}
+
+// Query string -> filter. Junk is ignored (an unknown value never hides runs).
+export function parseRunFilter(params: URLSearchParams): RunFilter {
+  const f: RunFilter = {};
+  const q = (params.get("q") ?? "").trim().toLowerCase();
+  if (q) f.text = q;
+  if (params.get("issues") === "1") f.issues = true;
+  if (params.get("locked") === "1") f.locked = true;
+  const min = params.get("min");
+  if (min !== null && min.trim() !== "" && Number.isFinite(Number(min)) && Number(min) >= 0) f.min = Number(min);
+  return f;
+}
+
+// All conditions must hold (AND); order is preserved.
+export function filterRuns(index: RunIndexEntry[], f: RunFilter): RunIndexEntry[] {
+  return index.filter(
+    (e) =>
+      (f.text === undefined || e.dirName.toLowerCase().includes(f.text) || e.entries.some((x) => x.name.toLowerCase().includes(f.text!))) &&
+      (!f.issues || e.issues > 0) &&
+      (!f.locked || e.lockedBy.length > 0) &&
+      (f.min === undefined || e.worstMismatch >= f.min),
+  );
+}
+
 // Bulk cleanup: everything that is neither kept nor referenced by a baseline.
 // (Per-run DELETE is allowed on keep dirs — only the manifest lock is absolute.)
 export function cleanupSelection(index: RunIndexEntry[]): RunIndexEntry[] {

@@ -46,6 +46,10 @@ export function buildDashboardHtml(): string {
   .viewer .slider{position:relative}
   .viewer .slider .top{position:absolute;top:0;left:0}
   .viewer input[type=range]{width:100%;margin:6px 0 0}
+  .filters{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 24px;font-size:13px}
+  .filters input[type=search]{font:inherit;padding:5px 10px;border:1px solid #dcdfe4;border-radius:5px;min-width:220px}
+  .filters input[type=number]{font:inherit;padding:5px 6px;border:1px solid #dcdfe4;border-radius:5px;width:64px}
+  .filters label{display:flex;gap:5px;align-items:center;color:#656f80}
   .actions{display:flex;gap:8px;flex-shrink:0}
   button{font:inherit;padding:5px 12px;border:1px solid #dcdfe4;border-radius:5px;background:#fff;cursor:pointer}
   button:hover{background:#f1f5f9}
@@ -60,6 +64,13 @@ export function buildDashboardHtml(): string {
   <div class="sum" id="summary">loading…</div>
   <button class="danger" id="cleanup">Cleanup</button>
 </header>
+<div class="filters">
+  <input type="search" id="q" placeholder="Filter by run or name…">
+  <label><input type="checkbox" id="f-issues"> has issues</label>
+  <label><input type="checkbox" id="f-locked"> baseline-locked</label>
+  <label>worst mismatch ≥ <input type="number" id="f-min" min="0" step="0.5" placeholder="%"> %</label>
+  <label style="margin-left:auto"><input type="checkbox" id="auto"> Auto-refresh</label>
+</div>
 <div id="runs"></div>
 <h2>Baselines</h2>
 <div id="baselines"></div>
@@ -74,10 +85,29 @@ const el = (tag, cls, text) => {
 };
 
 let index = [];
+let lastJson = "";
+const openDetails = new Set(); // run dirs whose Details panel is open; survives re-renders
 
-async function load() {
-  index = await (await fetch("/api/runs")).json();
-  render();
+function filterQuery() {
+  const p = new URLSearchParams();
+  const q = document.getElementById("q").value.trim();
+  if (q) p.set("q", q);
+  if (document.getElementById("f-issues").checked) p.set("issues", "1");
+  if (document.getElementById("f-locked").checked) p.set("locked", "1");
+  const min = document.getElementById("f-min").value;
+  if (min !== "") p.set("min", min);
+  return p.toString();
+}
+
+// force=false (auto-refresh) skips the re-render when nothing changed.
+async function load(force = true) {
+  const text = await (await fetch("/api/runs?" + filterQuery())).text();
+  if (force || text !== lastJson) {
+    lastJson = text;
+    index = JSON.parse(text);
+    render();
+  }
+  await loadBaselines();
 }
 
 function img(src, alt) { const i = document.createElement("img"); i.src = src; i.alt = alt; i.loading = "lazy"; return i; }
@@ -161,7 +191,7 @@ function renderDetail(panel, entries) {
 function render() {
   const total = index.reduce((n, r) => n + r.sizeBytes, 0);
   document.getElementById("summary").textContent =
-    index.length + " run(s) · " + fmtBytes(total);
+    index.length + " run(s) shown · " + fmtBytes(total);
   const root = document.getElementById("runs");
   root.replaceChildren();
   for (const r of index) {
@@ -218,16 +248,26 @@ function render() {
       panel = el("div", "detail");
       panel.hidden = true;
       const detailBtn = el("button", null, "Details");
-      detailBtn.onclick = async () => {
-        if (!panel.hidden) { panel.hidden = true; return; }
+      // Returns an error message, or null once the panel is showing.
+      const showPanel = async () => {
         if (!panel.hasChildNodes()) {
           const res = await fetch("/api/runs/" + encodeURIComponent(r.dirName) + "/detail");
-          if (!res.ok) { alert("No details: " + (await res.json()).error); return; }
+          if (!res.ok) return (await res.json()).error;
           renderDetail(panel, await res.json());
         }
         panel.hidden = false;
+        return null;
+      };
+      detailBtn.onclick = async () => {
+        if (!panel.hidden) { openDetails.delete(r.dirName); panel.hidden = true; return; }
+        // Mark it open before the fetch: a re-render that lands meanwhile (auto-refresh,
+        // a filter change) rebuilds the panel open instead of replacing it with a closed one.
+        openDetails.add(r.dirName);
+        const err = await showPanel();
+        if (err) { openDetails.delete(r.dirName); alert("No details: " + err); }
       };
       actions.appendChild(detailBtn);
+      if (openDetails.has(r.dirName)) showPanel();
     }
     const keepBtn = el("button", null, r.keep ? "Unkeep" : "Keep");
     keepBtn.onclick = async () => {
@@ -277,7 +317,10 @@ async function loadBaselines() {
 }
 
 document.getElementById("cleanup").onclick = async () => {
-  const victims = index.filter((r) => !r.keep && !r.lockedBy.length);
+  // The server deletes every run that is neither kept nor locked, whatever the
+  // list is filtered to — so the confirmation must list the unfiltered set.
+  const all = await (await fetch("/api/runs")).json();
+  const victims = all.filter((r) => !r.keep && !r.lockedBy.length);
   if (!victims.length) return alert("Nothing to clean up — every run is kept or baseline-referenced.");
   const total = victims.reduce((n, r) => n + r.sizeBytes, 0);
   const list = victims.map((r) => "  " + r.dirName).join("\\n");
@@ -288,8 +331,14 @@ document.getElementById("cleanup").onclick = async () => {
   load();
 };
 
+let typing = null;
+document.getElementById("q").oninput = () => { clearTimeout(typing); typing = setTimeout(() => load(), 250); };
+for (const id of ["f-issues", "f-locked", "f-min"]) document.getElementById(id).onchange = () => load();
+setInterval(() => {
+  if (document.getElementById("auto").checked && !document.hidden) load(false);
+}, 5000);
+
 load();
-loadBaselines();
 </script>
 </body>
 </html>`;
