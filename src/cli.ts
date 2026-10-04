@@ -230,7 +230,7 @@ async function main(): Promise<number> {
         return 1;
       }
     }
-    if (candidate.summary.schemaVersion < 7) {
+    if (candidate.summary.schemaVersion < 8) {
       process.stderr.write(`vigress approve: ${candidate.dir} was written by an older vigress (schema ${candidate.summary.schemaVersion}) — re-run the comparison first\n`);
       return 1;
     }
@@ -337,7 +337,7 @@ async function main(): Promise<number> {
       process.stderr.write(`vigress: invalid baseline ref '${spec.against}' — expected baseline:<name>\n`);
       return 2;
     }
-    const res = resolveBaselineArtifacts(manifest, refName, spec.viewport);
+    const res = resolveBaselineArtifacts(manifest, refName, spec.viewport, spec.fullPage === true);
     if (!res.ok) {
       if (res.missingEntry && opts.updateBaseline) {
         // First run for this name: capture + approve, skip diffing (bootstrap).
@@ -509,6 +509,7 @@ async function main(): Promise<number> {
         mismatchPercent: full?.mismatchPercent,
         target: targetRel,
         targetUrl: spec.target,
+        fullPage: spec.fullPage ? true : undefined,
         baseline: isBootstrap ? undefined : baselineRel,
         diff: isBootstrap ? undefined : diffRel,
         video: videoRel,

@@ -309,6 +309,7 @@ baselines/
       "approvedFrom": "out/2026-07-06_15-11-50",
       "viewport": { "width": 1440, "height": 900 },
       "sourceUrl": "https://localhost:3000/contact",
+      "fullPage": true,
       "artifacts": {
         "main": "out/2026-07-06_15-11-50/contact.target.png",
         "steps": {
@@ -319,6 +320,10 @@ baselines/
   }
 }
 ```
+
+`fullPage` is present only for baselines approved from a `--full-page` run. A
+`baseline:` run must use the same setting (like the viewport) or it exits 2 —
+otherwise only the top slice of the page would be compared.
 
 Paths are relative to the repo root. The manifest is committed to git; `out/`
 remains git-ignored. **Baselines are per-machine** until remote storage is
@@ -605,12 +610,12 @@ functionality: X/Y checks passed
 
 where `X` is the count of `ok` check-steps and `Y` is the total check-steps.
 
-### New outputs (schemaVersion 6 / 7)
+### New outputs (schemaVersion 6 / 7 / 8)
 
-`summary.json` and the `--json` payload are **`schemaVersion: 7`** (v5
+`summary.json` and the `--json` payload are **`schemaVersion: 8`** (v5
 added `regions[].styleDiff`; v6 added the `assert` step action; v7 added
 `targetUrl`, `stepDiffs`, `bootstrap`, and made `baseline`/`diff`/mismatch
-fields optional). Each run entry adds:
+fields optional; v8 added `fullPage`). Each run entry adds:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -645,7 +650,7 @@ video. It references the artifacts by relative path, so open it directly
 **`summary.json`** (artifact paths are **relative** to `outDir`):
 ```json
 {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "outDir": "/abs/path/out",
   "reportHtml": "report.html",
   "summaryJson": "summary.json",
@@ -676,6 +681,8 @@ video. It references the artifacts by relative path, so open it directly
 }
 ```
 
+**v8 schema changes** (from v7): each `RunResult` gains `fullPage?: true`, present when the run was captured with `--full-page`. `approve` records it in the manifest and `baseline:` runs must match it. `approve` refuses summaries older than v8, so re-run the comparison first.
+
 **v7 schema changes** (from v6): each `RunResult` gains `targetUrl` (string — the captured URL, used by `approve` to record `sourceUrl` in the manifest) and `stepDiffs` (array of `{ name, mismatchPercent, diff?, verdict: "ok"|"mismatch"|"new"|"missing" }` — step screenshot regressions against an approved `baseline:` run). `bootstrap?: true` marks a first approval run (no prior baseline to diff against). On bootstrap runs, `baseline`, `diff`, `mismatchPixels`, and `mismatchPercent` are absent (they are optional from v7 onward).
 
 ---
@@ -689,7 +696,7 @@ shape as `summary.json` but with **absolute** artifact paths, ready to read:
 bun run src/cli.ts --target … --against … --state auth.state.json --json --quiet
 ```
 ```json
-{ "schemaVersion": 7, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
+{ "schemaVersion": 8, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
   "summaryJson": "/abs/out/summary.json",
   "runs": [ { "name": "contact", "baselineType": "url", "viewport": {"width":1440,"height":900},
               "mismatchPixels": 12345, "mismatchPercent": 4.2,
