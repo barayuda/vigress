@@ -45,7 +45,7 @@ proxy is the only path in. Update that bullet when Stage 3 ships.
 | 1.1 | ✅ Baseline manager (read-only) | `GET /api/baselines`: name, approved date, viewport, `fullPage`, source URL, step count, missing artifacts. **Tracer slice.** |
 | 1.2 | ✅ Approve from the page | `POST /api/runs/<dir>/approve/<name>`; same checks as `vigress approve` (schema >= 8, target capture present); guarded like delete. |
 | 1.3 | ✅ Run detail view | Regions, failed steps, style diffs, `heightDelta`, step diffs per run, from `summary.json`. |
-| 1.4 | Side-by-side viewer | Baseline / target / diff with a slider or toggle, via `/files/`. |
+| 1.4 | ✅ Side-by-side viewer | Baseline / target / diff with a slider or toggle, via `/files/`. |
 | 1.5 | Filter, search, auto-refresh | By name, issues, locked, mismatch over N%; poll `/api/runs`. |
 
 ## Stage 2 — Run

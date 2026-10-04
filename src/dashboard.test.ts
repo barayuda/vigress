@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { referencedRunDirs, buildRunIndex, buildRunDetail, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { referencedRunDirs, buildRunIndex, buildRunDetail, fileUrl, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -216,7 +216,7 @@ describe("buildRunDetail", () => {
   });
 
   it("keeps only what needs attention: failed check steps, style mismatches, step diffs with their verdict", () => {
-    const [d] = buildRunDetail(summary([noisy]));
+    const [d] = buildRunDetail(summary([noisy]), "run-x");
     expect(d.name).toBe("page");
     expect(d.mismatchPercent).toBe(3.2);
     expect(d.heightDelta).toBe(-40);
@@ -227,16 +227,39 @@ describe("buildRunDetail", () => {
   });
   it("counts issues the same way the run list does", () => {
     const sum = summary([noisy]);
-    const [d] = buildRunDetail(sum);
+    const [d] = buildRunDetail(sum, "run-x");
     const [row] = buildRunIndex([dir({ summary: sum })], new Map());
     expect(d.issues).toBe(row.issues);
     expect(d.issues).toBe(3); // 1 failed check + 1 missing step diff + 1 style mismatch
   });
   it("marks a bootstrap entry and tolerates absent mismatch fields", () => {
-    const [d] = buildRunDetail(summary([run({ bootstrap: true, mismatchPercent: undefined, heightDelta: undefined })]));
+    const [d] = buildRunDetail(summary([run({ bootstrap: true, mismatchPercent: undefined, heightDelta: undefined, baseline: undefined, diff: undefined })]), "run-x");
     expect(d.bootstrap).toBe(true);
     expect(d.mismatchPercent).toBeUndefined();
     expect(d.heightDelta).toBeUndefined();
     expect(d.issues).toBe(0);
+  });
+});
+
+describe("fileUrl", () => {
+  it("encodes each path segment and keeps the slashes", () => {
+    expect(fileUrl("2026-10-04_10-00-00", "video/a b.webm")).toBe("/files/2026-10-04_10-00-00/video/a%20b.webm");
+    expect(fileUrl("run x", "p.target.png")).toBe("/files/run%20x/p.target.png");
+  });
+});
+
+describe("buildRunDetail images", () => {
+  it("gives ready /files/ URLs for target, baseline, diff and video", () => {
+    const [d] = buildRunDetail(summary([run({ video: "video/page.webm" })]), "run-x");
+    expect(d.images).toEqual({
+      target: "/files/run-x/page.target.png",
+      baseline: "/files/run-x/page.baseline.png",
+      diff: "/files/run-x/page.diff.png",
+      video: "/files/run-x/video/page.webm",
+    });
+  });
+  it("omits baseline, diff and video when the run has none (bootstrap)", () => {
+    const [d] = buildRunDetail(summary([run({ bootstrap: true, baseline: undefined, diff: undefined })]), "run-x");
+    expect(d.images).toEqual({ target: "/files/run-x/page.target.png" });
   });
 });

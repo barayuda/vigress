@@ -125,7 +125,7 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         if (!existsSync(abs)) return json({ error: "run dir not found" }, 404);
         const summary = readSummary(abs);
         if (!summary) return json({ error: "run has no readable summary.json" }, 404);
-        return json(buildRunDetail(summary));
+        return json(buildRunDetail(summary, dir));
       }
 
       // Approved baselines from the manifest (re-read per request), flagging missing artifacts.

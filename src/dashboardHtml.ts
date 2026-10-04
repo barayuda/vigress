@@ -30,11 +30,22 @@ export function buildDashboardHtml(): string {
   table.bl{border-collapse:collapse;background:#fff;border:1px solid #dcdfe4;border-radius:6px;margin:8px 24px 24px;width:calc(100% - 48px);font-size:13px}
   table.bl th,table.bl td{text-align:left;padding:6px 10px;border-bottom:1px solid #ebf0f1}
   table.bl .bad{color:#b42318}
+  #baselines>.meta{margin:8px 24px}
   .detail{background:#fff;border:1px solid #dcdfe4;border-radius:6px;margin:-4px 24px 12px;padding:10px 16px;font-size:13px}
   .detail h3{margin:8px 0 2px;font-size:13px}
   .detail .bad{color:#b42318}
   .detail .ok{color:#067647}
   .detail ul{margin:2px 0 4px;padding-left:18px}
+  .viewer{margin:6px 0 10px}
+  .viewer .modes{display:flex;gap:6px;margin-bottom:6px}
+  .viewer .modes button.on{background:#e8f0fe;border-color:#1a56db;color:#1a56db}
+  .viewer .trio{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .viewer .trio figure{margin:0}
+  .viewer figcaption{color:#656f80;font-size:11px}
+  .viewer img{width:100%;border:1px solid #ebf0f1;background:#fff;display:block}
+  .viewer .slider{position:relative}
+  .viewer .slider .top{position:absolute;top:0;left:0}
+  .viewer input[type=range]{width:100%;margin:6px 0 0}
   .actions{display:flex;gap:8px;flex-shrink:0}
   button{font:inherit;padding:5px 12px;border:1px solid #dcdfe4;border-radius:5px;background:#fff;cursor:pointer}
   button:hover{background:#f1f5f9}
@@ -69,12 +80,67 @@ async function load() {
   render();
 }
 
+function img(src, alt) { const i = document.createElement("img"); i.src = src; i.alt = alt; i.loading = "lazy"; return i; }
+
+// Baseline / target / diff, either side by side or as a drag-to-reveal overlay
+// (target on top, clipped from the left by the range input).
+function renderViewer(images) {
+  const box = el("div", "viewer");
+  const modes = el("div", "modes");
+  const body = el("div");
+  const trio = () => {
+    const t = el("div", "trio");
+    for (const [label, src] of [["Baseline · old", images.baseline], ["Target · new", images.target], ["Diff", images.diff]]) {
+      if (!src) continue;
+      const f = el("figure");
+      f.appendChild(img(src, label));
+      f.appendChild(el("figcaption", null, label));
+      t.appendChild(f);
+    }
+    return t;
+  };
+  const slider = () => {
+    const wrap = el("div");
+    const stack = el("div", "slider");
+    stack.appendChild(img(images.baseline, "baseline"));
+    const top = img(images.target, "target");
+    top.className = "top";
+    stack.appendChild(top);
+    const range = document.createElement("input");
+    range.type = "range"; range.min = "0"; range.max = "100"; range.value = "50";
+    const apply = () => { top.style.clipPath = "inset(0 0 0 " + range.value + "%)"; };
+    range.oninput = apply; apply();
+    wrap.appendChild(stack);
+    wrap.appendChild(range);
+    wrap.appendChild(el("div", "meta", "left of the handle: baseline · right: target"));
+    return wrap;
+  };
+  const show = (mode, btn) => {
+    for (const b of modes.children) b.classList.remove("on");
+    btn.classList.add("on");
+    body.replaceChildren(mode === "slider" ? slider() : trio());
+  };
+  const sideBtn = el("button", "on", "Side by side");
+  sideBtn.onclick = () => show("side", sideBtn);
+  modes.appendChild(sideBtn);
+  if (images.baseline) {
+    const sliderBtn = el("button", null, "Slider");
+    sliderBtn.onclick = () => show("slider", sliderBtn);
+    modes.appendChild(sliderBtn);
+  }
+  box.appendChild(modes);
+  body.appendChild(trio());
+  box.appendChild(body);
+  return box;
+}
+
 function renderDetail(panel, entries) {
   const list = (items) => { const ul = el("ul"); for (const t of items) ul.appendChild(el("li", null, t)); return ul; };
   for (const e of entries) {
     panel.appendChild(el("h3", null, e.name +
       (e.bootstrap ? " (bootstrap)" : e.mismatchPercent !== undefined ? " — " + e.mismatchPercent + "%" : "") +
       (e.heightDelta ? " · height " + (e.heightDelta > 0 ? "+" : "") + e.heightDelta + "px not compared" : "")));
+    panel.appendChild(renderViewer(e.images));
     if (!e.issues && !e.regions.length && !e.stepDiffs.length) { panel.appendChild(el("div", "ok", "nothing to review")); continue; }
     if (e.failedSteps.length) {
       panel.appendChild(el("div", "bad", "failed steps"));
