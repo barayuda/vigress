@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { PNG } from "pngjs";
-import { paintMask, cropToBox, scoreRegion, boxInCapture, MASK_COLOR } from "./regions";
+import { paintMask, cropToBox, scoreRegion, boxInCapture, captureRect, MASK_COLOR } from "./regions";
 
 function solid(w: number, h: number, v: number): PNG {
   const png = new PNG({ width: w, height: h });
@@ -82,5 +82,25 @@ describe("scoreRegion", () => {
   it("uses the default threshold of 5 when none given", () => {
     expect(scoreRegion({ ...base, mismatchPercent: 6 })).toEqual({ verdict: "fail", reason: "content" });
     expect(scoreRegion({ ...base, mismatchPercent: 4 })).toEqual({ verdict: "pass", reason: "content" });
+  });
+});
+
+describe("captureRect", () => {
+  const viewport = { width: 1280, height: 800 };
+  const clip = { x: 10, y: 20, width: 300, height: 200 };
+  it("uses the clip when set", () => {
+    expect(captureRect({ clip, viewport })).toEqual(clip);
+  });
+  it("falls back to the viewport at the origin", () => {
+    expect(captureRect({ viewport })).toEqual({ x: 0, y: 0, width: 1280, height: 800 });
+  });
+  it("fullPage spans the measured page height", () => {
+    expect(captureRect({ viewport, fullPage: true }, 3000)).toEqual({ x: 0, y: 0, width: 1280, height: 3000 });
+  });
+  it("fullPage without a measured height falls back to the viewport height", () => {
+    expect(captureRect({ viewport, fullPage: true })).toEqual({ x: 0, y: 0, width: 1280, height: 800 });
+  });
+  it("fullPage ignores the clip", () => {
+    expect(captureRect({ clip, viewport, fullPage: true }, 3000)).toEqual({ x: 0, y: 0, width: 1280, height: 3000 });
   });
 });

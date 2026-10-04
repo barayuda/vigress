@@ -267,3 +267,24 @@ describe("baseline: refs", () => {
     expect(opts.updateBaseline).toBe(false);
   });
 });
+
+describe("fullPage", () => {
+  it("is off by default", () => {
+    const { runs } = buildRunConfig({ target: "http://x/a", against: "http://x/b" }, {});
+    expect(runs[0].fullPage).toBeFalsy();
+  });
+  it("turns on with --full-page", () => {
+    const { runs } = buildRunConfig({ target: "http://x/a", against: "http://x/b", "full-page": true }, {});
+    expect(runs[0].fullPage).toBe(true);
+  });
+  it("can be set per batch entry", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vg-"));
+    const cfg = join(dir, "c.json");
+    writeFileSync(cfg, JSON.stringify([
+      { target: "http://x/a", against: "baseline:a", fullPage: true },
+      { target: "http://x/b", against: "baseline:b" },
+    ]));
+    const { runs } = buildRunConfig({ config: cfg }, {});
+    expect(runs.map(r => !!r.fullPage)).toEqual([true, false]);
+  });
+});

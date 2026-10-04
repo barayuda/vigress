@@ -6,7 +6,7 @@ import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, buildManife
 import type { BrowserContext } from "playwright";
 import { buildRunConfig, buildScaffoldConfig, scaffoldPlaceholders, parseViewport, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem, type Box } from "./config";
 import { runSteps, autoExplore, stepSummary } from "./steps";
-import { resolveBoxes, type BoxItem } from "./regions";
+import { captureRect, resolveBoxes, type BoxItem } from "./regions";
 import { diffWithRegions, diffShots, type RegionInput } from "./diff";
 import { launchBrowser } from "./browser";
 import { capturePage } from "./capture";
@@ -34,6 +34,7 @@ const { values, positionals } = parseArgs({
     video: { type: "boolean" },
     "no-video": { type: "boolean" },
     clip: { type: "string" },
+    "full-page": { type: "boolean" },
     threshold: { type: "string" },
     json: { type: "boolean" },
     quiet: { type: "boolean" },
@@ -394,12 +395,11 @@ async function main(): Promise<number> {
         props,
       }));
 
-      // DOM-resolved boxes are translated into this rect's coordinate space —
-      // the screenshot covers the --clip region when set, else the viewport.
-      const captureRect = spec.clip ?? { x: 0, y: 0, width: spec.viewport.width, height: spec.viewport.height };
-
       const page = await ctx.newPage();
-      await capturePage(page, spec.target, join(outDir, targetRel), spec.clip);
+      const { height: targetHeight } = await capturePage(page, spec.target, join(outDir, targetRel), {
+        clip: spec.clip,
+        fullPage: spec.fullPage,
+      });
       // With a session attached, landing on a login page means it expired —
       // fail fast instead of silently diffing two login screens.
       if (opts.statePath && looksLikeLoginRedirect(spec.target, page.url())) {
@@ -407,7 +407,8 @@ async function main(): Promise<number> {
           `target redirected to a login page (${page.url()}) — the session in "${opts.statePath}" has likely expired. Re-run: vigress login --url ${spec.target} --state ${opts.statePath}`,
         );
       }
-      const targetBoxes = await resolveBoxes(page, targetItems, captureRect);
+      // DOM-resolved boxes are translated into the screenshot's coordinate space.
+      const targetBoxes = await resolveBoxes(page, targetItems, captureRect(spec, targetHeight));
       const targetStyles = await resolveStyles(page, targetStyleItems);
 
       const isBootstrap = bootstrapRuns.has(spec.name);
