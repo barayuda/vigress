@@ -4,15 +4,18 @@ export async function capturePage(
   page: Page,
   url: string,
   outPath: string,
-  clip?: { x: number; y: number; width: number; height: number },
-  // SPAs with persistent sockets (MQTT/long-poll) never reach networkidle, so the
-  // wait is capped — otherwise it blocks the full 30s default and bloats the video.
-  // Tune via VIGRESS_SETTLE (ms); lower = shorter clip, higher = safer for slow data.
-  settle: number = Number(process.env.VIGRESS_SETTLE) || 8000,
-  // Whole scrollable page instead of the viewport. Scrolls to the bottom first so
-  // lazy images and scroll-triggered content load, then returns to the top.
-  fullPage: boolean = false,
-): Promise<string> {
+  opts: {
+    clip?: { x: number; y: number; width: number; height: number };
+    // SPAs with persistent sockets (MQTT/long-poll) never reach networkidle, so the
+    // wait is capped — otherwise it blocks the full 30s default and bloats the video.
+    // Tune via VIGRESS_SETTLE (ms); lower = shorter clip, higher = safer for slow data.
+    settle?: number;
+    // Whole scrollable page instead of the viewport. Steps through it first so
+    // lazy images and scroll-triggered content load, then returns to the top.
+    fullPage?: boolean;
+  } = {},
+): Promise<{ path: string; height: number }> {
+  const { clip, fullPage = false, settle = Number(process.env.VIGRESS_SETTLE) || 8000 } = opts;
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle", { timeout: settle }).catch(() => {});
   await page.evaluate(() => document.fonts?.ready).catch(() => {});
@@ -23,7 +26,9 @@ export async function capturePage(
   // frames and page.screenshot() times out waiting for stability. caret: "hide"
   // keeps text-input captures deterministic.
   await page.screenshot({ path: outPath, clip: fullPage ? undefined : clip, fullPage, animations: "disabled", caret: "hide" });
-  return outPath;
+  // Measured after prep (lazy content loaded) so callers can build the capture rect.
+  const height = await page.evaluate(() => document.documentElement.scrollHeight);
+  return { path: outPath, height };
 }
 
 // Step down one viewport at a time (capped) so IntersectionObserver-based lazy

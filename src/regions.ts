@@ -24,6 +24,17 @@ export function boxInCapture(box: Box, capture: Box): Box | null {
   return { x: x0 - capture.x, y: y0 - capture.y, width: x1 - x0, height: y1 - y0 };
 }
 
+// The rect the screenshot covers, in page coordinates: the whole page width x
+// measured height for fullPage (which ignores --clip), else the --clip rect, else
+// the viewport. Shared by target and baseline so both translate boxes identically.
+export function captureRect(
+  opts: { clip?: Box; viewport: { width: number; height: number }; fullPage?: boolean },
+  pageHeight?: number,
+): Box {
+  if (opts.fullPage) return { x: 0, y: 0, width: opts.viewport.width, height: pageHeight ?? opts.viewport.height };
+  return opts.clip ?? { x: 0, y: 0, width: opts.viewport.width, height: opts.viewport.height };
+}
+
 export async function resolveBoxes(
   page: Page,
   items: BoxItem[],

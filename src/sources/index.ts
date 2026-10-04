@@ -19,10 +19,9 @@ export async function resolveBaseline(
 ): Promise<{ path: string; boxes: Record<string, Box | null>; styles: Record<string, StyleValues> }> {
   switch (spec.baselineType) {
     case "url": {
-      // Baseline captures share the target's clip/viewport, so DOM boxes are
-      // translated into the same screenshot coordinate space.
-      const capture = spec.clip ?? { x: 0, y: 0, width: spec.viewport.width, height: spec.viewport.height };
-      return urlSource(ctx, spec.against, outPath, spec.clip, items, styleItems, capture, statePath);
+      // Baseline captures share the target's clip/viewport/fullPage, so DOM boxes
+      // are translated into the same screenshot coordinate space.
+      return urlSource(ctx, spec.against, outPath, spec.viewport, spec.clip, items, styleItems, spec.fullPage, statePath);
     }
     case "image":
       // No DOM to probe — image/figma baselines never resolve style values.
