@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
-import { buildRunIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { buildRunIndex, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, type Manifest } from "./baselines";
 import type { Summary } from "./types";
@@ -115,6 +115,11 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
 
       if (req.method === "GET" && url.pathname === "/api/runs") {
         return json(currentIndex(o));
+      }
+
+      // Approved baselines from the manifest (re-read per request), flagging missing artifacts.
+      if (req.method === "GET" && url.pathname === "/api/baselines") {
+        return json(buildBaselineIndex(loadManifest(o), (p) => existsSync(join(o.rootDir, p))));
       }
 
       // GET /files/<dirName>/<artifact path…> — path-traversal-guarded to out/.

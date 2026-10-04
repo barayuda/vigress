@@ -79,6 +79,39 @@ export function buildRunIndex(dirs: RunDirInfo[], refs: Map<string, string[]>): 
   return index.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
+export interface BaselineIndexEntry {
+  name: string;
+  approvedAt: string;
+  approvedFrom: string;
+  viewport: { width: number; height: number };
+  sourceUrl: string;
+  fullPage: boolean; // absent on the manifest entry = viewport capture
+  stepCount: number;
+  missing: string[]; // artifact paths (repo-root-relative) not found on disk
+}
+
+// One row per approved baseline. `exists` is injected (repo-root-relative path
+// -> bool) so the "broken baseline" check stays pure; a baseline whose artifacts
+// were deleted fails at run time otherwise.
+export function buildBaselineIndex(manifest: Manifest | null, exists: (relPath: string) => boolean): BaselineIndexEntry[] {
+  if (!manifest) return [];
+  return Object.entries(manifest.baselines)
+    .map(([name, e]): BaselineIndexEntry => {
+      const artifacts = [e.artifacts.main, ...Object.values(e.artifacts.steps)];
+      return {
+        name,
+        approvedAt: e.approvedAt,
+        approvedFrom: e.approvedFrom,
+        viewport: e.viewport,
+        sourceUrl: e.sourceUrl,
+        fullPage: e.fullPage === true,
+        stepCount: Object.keys(e.artifacts.steps).length,
+        missing: [...new Set(artifacts)].filter((p) => !exists(p)),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // Bulk cleanup: everything that is neither kept nor referenced by a baseline.
 // (Per-run DELETE is allowed on keep dirs — only the manifest lock is absolute.)
 export function cleanupSelection(index: RunIndexEntry[]): RunIndexEntry[] {

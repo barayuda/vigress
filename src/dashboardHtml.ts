@@ -26,6 +26,10 @@ export function buildDashboardHtml(): string {
   .b-keep{background:#e8f0fe;color:#1a56db}
   .b-unreadable{background:#fef3c7;color:#a16207}
   .b-issues{background:#fee2e2;color:#b42318}
+  h2{margin:24px 24px 0;font-size:15px}
+  table.bl{border-collapse:collapse;background:#fff;border:1px solid #dcdfe4;border-radius:6px;margin:8px 24px 24px;width:calc(100% - 48px);font-size:13px}
+  table.bl th,table.bl td{text-align:left;padding:6px 10px;border-bottom:1px solid #ebf0f1}
+  table.bl .bad{color:#b42318}
   .actions{display:flex;gap:8px;flex-shrink:0}
   button{font:inherit;padding:5px 12px;border:1px solid #dcdfe4;border-radius:5px;background:#fff;cursor:pointer}
   button:hover{background:#f1f5f9}
@@ -41,6 +45,8 @@ export function buildDashboardHtml(): string {
   <button class="danger" id="cleanup">Cleanup</button>
 </header>
 <div id="runs"></div>
+<h2>Baselines</h2>
+<div id="baselines"></div>
 <script>
 const fmtBytes = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB";
 const fmtDate = (ms) => new Date(ms).toLocaleString();
@@ -134,6 +140,31 @@ function render() {
   }
 }
 
+async function loadBaselines() {
+  const list = await (await fetch("/api/baselines")).json();
+  const root = document.getElementById("baselines");
+  root.replaceChildren();
+  if (!list.length) { root.appendChild(el("div", "meta", "No approved baselines yet — run vigress approve.")); return; }
+  const table = el("table", "bl");
+  const head = el("tr");
+  for (const h of ["name", "approved", "viewport", "capture", "steps", "source", "status"]) head.appendChild(el("th", null, h));
+  table.appendChild(head);
+  for (const b of list) {
+    const tr = el("tr");
+    tr.appendChild(el("td", "name", b.name));
+    tr.appendChild(el("td", null, fmtDate(Date.parse(b.approvedAt))));
+    tr.appendChild(el("td", null, b.viewport.width + "x" + b.viewport.height));
+    tr.appendChild(el("td", null, b.fullPage ? "full page" : "viewport"));
+    tr.appendChild(el("td", null, String(b.stepCount)));
+    tr.appendChild(el("td", null, b.sourceUrl));
+    tr.appendChild(b.missing.length
+      ? el("td", "bad", b.missing.length + " artifact(s) missing")
+      : el("td", null, "ok"));
+    table.appendChild(tr);
+  }
+  root.appendChild(table);
+}
+
 document.getElementById("cleanup").onclick = async () => {
   const victims = index.filter((r) => !r.keep && !r.lockedBy.length);
   if (!victims.length) return alert("Nothing to clean up — every run is kept or baseline-referenced.");
@@ -147,6 +178,7 @@ document.getElementById("cleanup").onclick = async () => {
 };
 
 load();
+loadBaselines();
 </script>
 </body>
 </html>`;

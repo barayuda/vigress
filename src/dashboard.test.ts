@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { referencedRunDirs, buildRunIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { referencedRunDirs, buildRunIndex, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -159,5 +159,36 @@ describe("isWriteAllowed", () => {
   });
   it("through the tailnet proxy with no allowlist configured, nobody may write", () => {
     expect(isWriteAllowed({ ...base, tailscaleLogin: "bara@x.com", writers: [] }).ok).toBe(false);
+  });
+});
+
+describe("buildBaselineIndex", () => {
+  const manifestOf = (fullPage?: true) => {
+    let m = upsertBaseline(emptyManifest(), "page", buildManifestEntry(run({ fullPage, shots: [{ name: "01-open", path: "page.01-open.png" }] }), "out/a", "2026-07-06T00:00:00Z"));
+    m = upsertBaseline(m, "alpha", buildManifestEntry(run({ name: "alpha", shots: [] }), "out/b", "2026-07-07T00:00:00Z"));
+    return m;
+  };
+  const allThere = () => true;
+
+  it("lists entries sorted by name with the fields the page shows", () => {
+    const idx = buildBaselineIndex(manifestOf(true), allThere);
+    expect(idx.map((b) => b.name)).toEqual(["alpha", "page"]);
+    expect(idx[1]).toMatchObject({
+      name: "page", approvedAt: "2026-07-06T00:00:00Z", approvedFrom: "out/a",
+      viewport: { width: 1440, height: 900 }, sourceUrl: "https://app.test/page",
+      fullPage: true, stepCount: 1, missing: [],
+    });
+  });
+  it("fullPage is false for viewport baselines and legacy entries", () => {
+    expect(buildBaselineIndex(manifestOf(), allThere).every((b) => b.fullPage === false)).toBe(true);
+  });
+  it("reports artifacts the injected existence check cannot find", () => {
+    const idx = buildBaselineIndex(manifestOf(), (p) => p !== "out/a/page.target.png");
+    const page = idx.find((b) => b.name === "page")!;
+    expect(page.missing).toEqual(["out/a/page.target.png"]);
+    expect(idx.find((b) => b.name === "alpha")!.missing).toEqual([]);
+  });
+  it("is empty for a null manifest", () => {
+    expect(buildBaselineIndex(null, allThere)).toEqual([]);
   });
 });

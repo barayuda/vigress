@@ -373,6 +373,7 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 |--------|------|-------------|
 | `GET` | `/` | Dashboard HTML page. |
 | `GET` | `/api/runs` | JSON array of all run-dir entries (sorted newest-first). |
+| `GET` | `/api/baselines` | JSON array of approved baselines from `baselines/manifest.json` (sorted by name): `name`, `approvedAt`, `approvedFrom`, `viewport`, `sourceUrl`, `fullPage`, `stepCount`, `missing` (artifact paths no longer on disk). Re-read per request. |
 | `GET` | `/files/<run>/<path>` | Serves an artifact from `out/<run>/`. Path-traversal guarded (lexical + realpath symlink check); dot-prefixed path segments (e.g. `.keep`, `.approved`) are refused with `403`; returns `403` on any escape attempt. |
 | `POST` | `/api/runs/<dir>/keep` | Toggles the `.keep` marker file in the run dir. Returns `{ keep: true|false }`. |
 | `DELETE` | `/api/runs/<dir>` | Deletes the run dir. Returns `{ "deleted": "<dir>" }` on success; `403` + `{ lockedBy }` if the dir is referenced by `baselines/manifest.json`; `404` if the dir has already vanished. |
@@ -849,7 +850,7 @@ vigress/
 │   ├── steps.ts          # interaction steps + auto-explore
 │   ├── discover.ts       # read-only DOM crawl → generated fullcheck config
 │   ├── baselines.ts      # baselines/manifest.json: parse/build/upsert/resolve, verdict matrix
-│   ├── dashboard.ts      # dashboard view-model: run index, locks, cleanup selection, path guard
+│   ├── dashboard.ts      # dashboard view-model: run index, baseline index, locks, cleanup selection, path guard
 │   ├── dashboardHtml.ts  # the dashboard page (static, self-contained)
 │   ├── server.ts         # Bun.serve wiring for `vigress dashboard` (127.0.0.1 only)
 │   ├── sources/          # baseline resolvers: url / image / figma
