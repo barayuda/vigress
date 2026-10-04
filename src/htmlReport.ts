@@ -114,10 +114,11 @@ function card(r: RunResult): string {
     : "";
   const pct = r.bootstrap ? "bootstrap" : `${r.mismatchPercent ?? 0}%`;
   const px = r.bootstrap ? "new baseline" : `${r.mismatchPixels ?? 0}px`;
+  const height = r.heightDelta ? ` · height ${r.heightDelta > 0 ? "+" : ""}${r.heightDelta}px` : "";
   return `
   <section class="card">
     <h2>${esc(r.name)} <span class="pct">${pct}</span>
-      <span class="meta">${esc(r.baselineType)} · ${r.viewport.width}×${r.viewport.height} · ${px} · ${esc(r.mode)}</span>
+      <span class="meta">${esc(r.baselineType)} · ${r.viewport.width}×${r.viewport.height} · ${px}${height} · ${esc(r.mode)}</span>
     </h2>
     ${compareTable(r)}
     ${regionRows(r.regions)}

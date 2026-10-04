@@ -89,6 +89,16 @@ describe("buildReportHtml regions + checklist", () => {
   });
 });
 
+describe("buildReportHtml heightDelta", () => {
+  it("shows a signed height difference only when non-zero", () => {
+    const withDelta = buildReportHtml({ ...summary, runs: [{ ...summary.runs[0], heightDelta: 200 }] });
+    expect(withDelta).toContain("height +200px");
+    expect(buildReportHtml({ ...summary, runs: [{ ...summary.runs[0], heightDelta: -35 }] })).toContain("height -35px");
+    expect(buildReportHtml(summary)).not.toContain("height +");
+    expect(buildReportHtml({ ...summary, runs: [{ ...summary.runs[0], heightDelta: 0 }] })).not.toContain("height ");
+  });
+});
+
 describe("buildReportHtml mode + shots", () => {
   it("shows the mode and renders a flow-shots strip", () => {
     const s: Summary = {

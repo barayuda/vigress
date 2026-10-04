@@ -39,6 +39,7 @@ const { values, positionals } = parseArgs({
     json: { type: "boolean" },
     quiet: { type: "boolean" },
     "max-mismatch": { type: "string" },
+    "max-height-delta": { type: "string" },
     config: { type: "string" },
     url: { type: "string" },
     region: { type: "string", multiple: true },
@@ -416,6 +417,7 @@ async function main(): Promise<number> {
 
       let full: { mismatchPixels: number; mismatchPercent: number } | undefined;
       let regions: RegionScore[] = [];
+      let heightDelta = 0;
       if (!isBootstrap) {
         let baselineBoxes: Record<string, Box | null> = {};
         let baselineStyles: Record<string, StyleValues> = {};
@@ -462,6 +464,7 @@ async function main(): Promise<number> {
           threshold: opts.threshold,
         });
         full = d.full;
+        heightDelta = d.heightDelta;
         regions = d.regions.map((r) => {
           const styleDiff = styleDiffByRegion.get(r.name);
           return styleDiff ? { ...r, styleDiff } : r;
@@ -507,6 +510,7 @@ async function main(): Promise<number> {
         viewport: spec.viewport,
         mismatchPixels: full?.mismatchPixels,
         mismatchPercent: full?.mismatchPercent,
+        heightDelta: heightDelta || undefined,
         target: targetRel,
         targetUrl: spec.target,
         fullPage: spec.fullPage ? true : undefined,
@@ -525,7 +529,8 @@ async function main(): Promise<number> {
       const stepsNote = mode === "steps" ? ` · steps ${ss.ok}/${ss.total} ok` : "";
       const styleMismatches = regions.reduce((n, r) => n + (r.styleDiff?.filter((s) => !s.match).length ?? 0), 0);
       const styleNote = regions.some((r) => r.styleDiff) ? ` · style ${styleMismatches} mismatch(es)` : "";
-      const pctNote = isBootstrap ? "bootstrap (new baseline)" : `mismatch ${full?.mismatchPercent ?? 0}%`;
+      const heightNote = heightDelta ? ` (height ${heightDelta > 0 ? "+" : ""}${heightDelta}px not compared)` : "";
+      const pctNote = isBootstrap ? "bootstrap (new baseline)" : `mismatch ${full?.mismatchPercent ?? 0}%${heightNote}`;
       const stepDiffNote = stepDiffs.length ? ` · ${stepDiffs.filter((d) => d.verdict === "ok").length}/${stepDiffs.length} step diff(s) ok` : "";
       log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} ${pctNote} · ${mode}${stepsNote}${styleNote}${stepDiffNote} · ${regions.length} region(s) -> ${isBootstrap ? targetRel : diffRel}`);
     }
@@ -564,6 +569,9 @@ async function main(): Promise<number> {
       0,
     );
     if (worst > opts.maxMismatch) return 1;
+  }
+  if (opts.maxHeightDelta !== undefined && results.some((r) => Math.abs(r.heightDelta ?? 0) > opts.maxHeightDelta!)) {
+    return 1;
   }
   if (
     values["require-steps"] &&

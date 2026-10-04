@@ -4,7 +4,8 @@ import type { StyleDiffEntry } from "./style";
 // v7: baseline: refs (self-regression) — stepDiffs[], targetUrl, bootstrap runs
 // with baseline/diff/mismatch omitted.
 // v8: RunResult.fullPage — lets `approve` record the capture mode in the manifest.
-export const SCHEMA_VERSION = 8;
+// v9: RunResult.heightDelta — target height minus baseline height when they differ.
+export const SCHEMA_VERSION = 9;
 
 export interface BoxDims {
   width: number;
@@ -59,6 +60,10 @@ export interface RunResult {
   // Absent on bootstrap runs (nothing to diff against yet):
   mismatchPixels?: number;
   mismatchPercent?: number;
+  // target PNG height minus baseline PNG height, in px. Present only when
+  // non-zero; the diff covers just the common top area, so this is the part
+  // of the page that was NOT compared.
+  heightDelta?: number;
   target: string; // path relative to outDir
   targetUrl: string; // the URL that was captured (approve records it as sourceUrl)
   fullPage?: true; // captured as a full-page screenshot (absent = viewport capture)

@@ -85,10 +85,13 @@ export function diffWithRegions(params: {
   threshold?: number;
   defaultMaxMismatch?: number;
   geomTolerance?: number;
-}): { full: DiffResult; regions: RegionScore[] } {
+}): { full: DiffResult; regions: RegionScore[]; heightDelta: number } {
   const threshold = params.threshold ?? 0.1;
   const target = PNG.sync.read(readFileSync(params.targetPath));
   const baseline = PNG.sync.read(readFileSync(params.baselinePath));
+  // diffBuffers crops both sides to the shorter one, so a taller target would
+  // otherwise go unnoticed. Positive = target is taller than the baseline.
+  const heightDelta = target.height - baseline.height;
 
   // Mask both sides, then persist the masked artifacts so the report shows them.
   paintMask(target, params.targetMaskBoxes);
@@ -148,7 +151,7 @@ export function diffWithRegions(params: {
     };
   });
 
-  return { full, regions };
+  return { full, regions, heightDelta };
 }
 
 // Diff each named step screenshot against its approved counterpart.

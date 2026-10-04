@@ -52,7 +52,7 @@ The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `ou
 
 ### The JSON contract (three places to keep in sync)
 
-`SCHEMA_VERSION` lives in `src/types.ts` (currently **8**). `summary.json` uses paths relative to `outDir`; the `--json` stdout payload is the same shape with **absolute** paths (built in `json.ts`). When you change the output shape (including adding a step-action enum value):
+`SCHEMA_VERSION` lives in `src/types.ts` (currently **9**). `summary.json` uses paths relative to `outDir`; the `--json` stdout payload is the same shape with **absolute** paths (built in `json.ts`). When you change the output shape (including adding a step-action enum value):
 
 1. Bump `SCHEMA_VERSION` in `src/types.ts`.
 2. Update the README's schema docs (it has drifted before).
@@ -75,9 +75,10 @@ The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `ou
 - `capture.ts` screenshots with `animations: "disabled"` — without it, perpetual loaders never yield two identical frames and `page.screenshot()` times out.
 - `--full-page` / per-entry `"fullPage": true` captures the whole scrollable page: `capture.ts` scrolls through it first (capped at 60 viewport steps) so lazy images and IntersectionObserver content load, and pins scroll-reveal (AOS) elements to their final state — those libraries re-hide sections that leave the viewport, which otherwise yields a mostly blank shot. `--clip` is ignored in this mode. Both the target and a URL baseline are captured full-page, each measured at its own height; region/mask boxes are translated against that height via the single `captureRect` in `regions.ts` (a hard-coded viewport rect would leave regions below the fold `unresolved`).
 - A `baseline:` run must use the same capture mode it was approved with: the manifest entry records `fullPage` (omitted = viewport, which is also how pre-existing entries read) and `resolveBaselineArtifacts` exits 2 on a mismatch, like the viewport check — otherwise only the top slice would be compared. `approve` refuses summaries older than schema 8 for the same reason (they don't say how they were captured).
+- `diffBuffers` crops both images to the shorter one, so a height difference is invisible in the mismatch %. `diffWithRegions` returns `heightDelta` (target − baseline) and the run reports it (`heightDelta`, omitted when 0); `--max-height-delta <px>` is the opt-in gate. Like the other gates it never fires by default.
 - Each run writes to a timestamped subdir under `--out` so prior runs persist; `--no-timestamp` overwrites in place.
 - Video records **by default** in both single and batch mode; `--no-video` / `"video": false` is the only opt-out.
-- The mismatch % is treated as a noisy signal, not a verdict — the tool never fails on it unless `--max-mismatch` is set. Gates: `--max-mismatch` (worst %), `--require-steps` (any failed check step), `--require-style` (any `styleDiff` mismatch). Exit codes: `0` ok, `1` gate tripped or error, `2` usage error.
+- The mismatch % is treated as a noisy signal, not a verdict — the tool never fails on it unless `--max-mismatch` is set. Gates: `--max-mismatch` (worst %), `--max-height-delta` (px not compared), `--require-steps` (any failed check step), `--require-style` (any `styleDiff` mismatch). Exit codes: `0` ok, `1` gate tripped or error, `2` usage error.
 - `login` preserves existing sessions when logging into a second host (state files are merged, not replaced). `login` is interactive by design (blocks on Enter) — never run it headlessly; `login --check` is the non-interactive session validator (exit 0/1).
 - A capture with `--state` that lands on a login page fails fast ("session has likely expired") via `looksLikeLoginRedirect` in `auth.ts` — segment-based URL matching, deliberately not substring matching.
 - `auth.state.json` holds live credentials; `*.state.json` is git-ignored — never commit or print its contents.
