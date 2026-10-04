@@ -48,7 +48,7 @@ Interaction modes: `static` (`--no-steps`), `steps` (explicit steps configured),
 
 Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `auth.ts`'s login flow, `sources/urlSource.ts`, `sources/figmaSource.ts` (network), and `server.ts` (dashboard HTTP/filesystem) is pure and unit-testable **without a browser or network**. Tests are colocated (`src/*.test.ts`) and cover only the pure side: diffing, config/flag parsing, baseline-type detection, region/box math, style diffing, HTML/JSON building. Keep new logic on the pure side when possible so it stays testable.
 
-The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `out/`, serves artifacts, executes deletes); every decision (manifest locking, cleanup selection, path safety via `safeChildPath`) lives in `dashboard.ts`, and the page is built by `dashboardHtml.ts`. Put new delete/keep rules in `dashboard.ts`, not `server.ts`.
+The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `out/`, serves artifacts, executes deletes); every decision (manifest locking, cleanup selection, path safety via `safeChildPath`) lives in `dashboard.ts`, and the page is built by `dashboardHtml.ts`. Put new delete/keep rules in `dashboard.ts`, not `server.ts`. File-system checks are injected into the pure functions (e.g. `buildBaselineIndex(manifest, exists)`) so they test without a disk. Direction and security model for further dashboard work: `docs/dashboard-roadmap.md`.
 
 ### The JSON contract (three places to keep in sync)
 
