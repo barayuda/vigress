@@ -376,7 +376,18 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 | `GET` | `/files/<run>/<path>` | Serves an artifact from `out/<run>/`. Path-traversal guarded (lexical + realpath symlink check); dot-prefixed path segments (e.g. `.keep`, `.approved`) are refused with `403`; returns `403` on any escape attempt. |
 | `POST` | `/api/runs/<dir>/keep` | Toggles the `.keep` marker file in the run dir. Returns `{ keep: true|false }`. |
 | `DELETE` | `/api/runs/<dir>` | Deletes the run dir. Returns `{ "deleted": "<dir>" }` on success; `403` + `{ lockedBy }` if the dir is referenced by `baselines/manifest.json`; `404` if the dir has already vanished. |
+| `POST` | `/api/runs/<dir>/approve` | Approves a run's captures as the baseline: body `{ "name": "<run>" }` or `{ "all": true }`. Same rules as `vigress approve` (summary schema ≥ 8, target capture present). Returns `{ approved: string[], from }`; `400` + `{ error }` on a rule failure; `500` if `baselines/manifest.json` is unreadable (it is never replaced by an empty one). The run dir becomes manifest-locked. |
 | `POST` | `/api/cleanup` | Bulk-deletes every run dir that is neither `.keep`-marked nor referenced by the manifest. Returns `{ deleted: string[], freedBytes: number }`. |
+
+### Who may make changes
+
+Every state-changing request (`POST`/`DELETE`) goes through one guard:
+
+- A browser `Origin`, when sent, must match the `Host` — another web page cannot drive the dashboard.
+- A direct local request (no `Tailscale-User-Login` header) is allowed.
+- A request proxied by `tailscale serve` carries the caller's login in `Tailscale-User-Login`; it is allowed only if that login is in `VIGRESS_DASHBOARD_WRITERS` (comma-separated, case-insensitive). With the variable unset, nobody on the tailnet can change anything; reads stay open.
+
+The server still binds `127.0.0.1` only; `tailscale serve --https` is the only way in from the tailnet.
 
 ### Keep and lock semantics
 

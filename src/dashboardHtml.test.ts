@@ -12,6 +12,9 @@ describe("buildDashboardHtml", () => {
     expect(html).toContain("/api/cleanup");
     expect(html).toContain("/files/");
   });
+  it("wires the approve action", () => {
+    expect(html).toContain("/approve");
+  });
   it("has the run list container and cleanup button", () => {
     expect(html).toContain('id="runs"');
     expect(html).toContain('id="cleanup"');

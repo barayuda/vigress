@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   MANIFEST_VERSION, emptyManifest, parseManifest, parseBaselineRef,
   buildManifestEntry, upsertBaseline, resolveBaselineArtifacts,
-  pickNewestRun, stepDiffVerdict, type RunDirCandidate,
+  pickNewestRun, stepDiffVerdict, approveRuns, type RunDirCandidate,
 } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -154,5 +154,50 @@ describe("stepDiffVerdict", () => {
     expect(stepDiffVerdict(true, true, 3.2, 2)).toBe("mismatch");
     expect(stepDiffVerdict(true, true, 1.9, 2)).toBe("ok");
     expect(stepDiffVerdict(true, true, 50)).toBe("ok"); // no gate set → noisy signal, not a verdict
+  });
+});
+
+describe("approveRuns", () => {
+  const sum = (runs: RunResult[], schemaVersion = 8): Summary => ({ ...summary(runs), schemaVersion });
+  const has = () => true;
+  const at = "2026-10-04T00:00:00Z";
+
+  it("approves one named run into a new manifest without mutating the input", () => {
+    const m0 = emptyManifest();
+    const r = approveRuns(m0, sum([run({ name: "a" }), run({ name: "b" })]), "out/x", "a", has, at);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.approved.map((x) => x.name)).toEqual(["a"]);
+      expect(Object.keys(r.manifest.baselines)).toEqual(["a"]);
+      expect(r.manifest.baselines.a.approvedFrom).toBe("out/x");
+      expect(r.manifest.baselines.a.approvedAt).toBe(at);
+    }
+    expect(m0.baselines).toEqual({});
+  });
+  it("treats a run literally named 'all' as a name, not as every run", () => {
+    const r = approveRuns(emptyManifest(), sum([run({ name: "all" }), run({ name: "b" })]), "out/x", "all", has, at);
+    expect(r.ok && r.approved.map((x) => x.name)).toEqual(["all"]);
+  });
+  it("approves every entry when which is null", () => {
+    const r = approveRuns(emptyManifest(), sum([run({ name: "a" }), run({ name: "b" })]), "out/x", null, has, at);
+    expect(r.ok && r.approved.map((x) => x.name)).toEqual(["a", "b"]);
+  });
+  it("refuses summaries older than schema 8 (capture mode unknown)", () => {
+    const r = approveRuns(emptyManifest(), sum([run()], 7), "out/x", "page", has, at);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toMatch(/older vigress.*schema 7/);
+  });
+  it("names the available runs when the name is unknown", () => {
+    const r = approveRuns(emptyManifest(), sum([run({ name: "a" })]), "out/x", "nope", has, at);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toMatch(/'nope'.*has: a/);
+  });
+  it("fails when a target capture is missing on disk", () => {
+    const r = approveRuns(emptyManifest(), sum([run()]), "out/x", "page", () => false, at);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toMatch(/target capture missing for 'page'/);
+  });
+  it("fails on a summary with no runs for every run", () => {
+    expect(approveRuns(emptyManifest(), sum([]), "out/x", null, has, at).ok).toBe(false);
   });
 });

@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
-import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, buildManifestEntry, upsertBaseline, pickNewestRun, parseBaselineRef, resolveBaselineArtifacts, type RunDirCandidate, type ManifestEntry } from "./baselines";
+import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, buildManifestEntry, upsertBaseline, approveRuns, pickNewestRun, parseBaselineRef, resolveBaselineArtifacts, type RunDirCandidate, type ManifestEntry } from "./baselines";
 import type { BrowserContext } from "playwright";
 import { buildRunConfig, buildScaffoldConfig, scaffoldPlaceholders, parseViewport, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem, type Box } from "./config";
 import { runSteps, autoExplore, stepSummary } from "./steps";
@@ -231,31 +231,19 @@ async function main(): Promise<number> {
         return 1;
       }
     }
-    if (candidate.summary.schemaVersion < 8) {
-      process.stderr.write(`vigress approve: ${candidate.dir} was written by an older vigress (schema ${candidate.summary.schemaVersion}) — re-run the comparison first\n`);
-      return 1;
-    }
-    const toApprove = all ? candidate.summary.runs : candidate.summary.runs.filter((r) => r.name === name);
-    if (!toApprove.length) {
-      process.stderr.write(
-        all
-          ? `vigress approve: no runs found in ${candidate.dir}\n`
-          : `vigress approve: run '${name}' not in ${candidate.dir} — has: ${candidate.summary.runs.map((r) => r.name).join(", ")}\n`,
-      );
-      return 1;
-    }
     const manifestFile = resolve(MANIFEST_PATH);
-    let manifest = existsSync(manifestFile) ? parseManifest(readFileSync(manifestFile, "utf8")) : emptyManifest();
+    const manifest = existsSync(manifestFile) ? parseManifest(readFileSync(manifestFile, "utf8")) : emptyManifest();
     const runDirRel = relative(process.cwd(), candidate.dir);
-    const approvedAt = new Date().toISOString();
-    for (const run of toApprove) {
-      if (!existsSync(join(candidate.dir, run.target))) {
-        process.stderr.write(`vigress approve: target capture missing for '${run.name}' (${join(runDirRel, run.target)})\n`);
-        return 1;
-      }
-      manifest = upsertBaseline(manifest, run.name, buildManifestEntry(run, runDirRel, approvedAt));
+    const res = approveRuns(
+      manifest, candidate.summary, runDirRel, all ? null : name!,
+      (targetRel) => existsSync(join(candidate.dir, targetRel)), new Date().toISOString(),
+    );
+    if (!res.ok) {
+      process.stderr.write(`vigress approve: ${res.message}\n`);
+      return 1;
     }
-    writeManifest(manifestFile, manifest);
+    const toApprove = res.approved;
+    writeManifest(manifestFile, res.manifest);
     writeFileSync(join(candidate.dir, ".approved"), toApprove.map((r) => r.name).join("\n") + "\n");
     if (values.json === true) {
       process.stdout.write(JSON.stringify({
@@ -286,6 +274,7 @@ async function main(): Promise<number> {
       port,
       rootDir: process.cwd(),
       manifestFile: resolve(MANIFEST_PATH),
+      writers: (process.env.VIGRESS_DASHBOARD_WRITERS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     });
     process.stdout.write(`vigress dashboard: http://127.0.0.1:${server.port}/ (out: ${baseOut}) — Ctrl-C to stop\n`);
     await new Promise(() => {}); // serve until killed

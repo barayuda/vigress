@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { referencedRunDirs, buildRunIndex, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { referencedRunDirs, buildRunIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -133,5 +133,31 @@ describe("safeChildPath", () => {
   it("rejects empty and dot-prefixed segments", () => {
     expect(safeChildPath(root, "")).toBeNull();
     expect(safeChildPath(root, ".approved")).toBeNull();
+  });
+});
+
+describe("isWriteAllowed", () => {
+  const base = { origin: null, host: "127.0.0.1:4600", tailscaleLogin: null, writers: [] as string[] };
+
+  it("allows a direct local request with no Origin (curl, CLI)", () => {
+    expect(isWriteAllowed(base).ok).toBe(true);
+  });
+  it("allows a same-origin browser request", () => {
+    expect(isWriteAllowed({ ...base, origin: "http://127.0.0.1:4600" }).ok).toBe(true);
+  });
+  it("rejects a cross-origin request (CSRF from another page)", () => {
+    const r = isWriteAllowed({ ...base, origin: "https://evil.example" });
+    expect(r.ok).toBe(false);
+  });
+  it("rejects an unparseable Origin", () => {
+    expect(isWriteAllowed({ ...base, origin: "not a url" }).ok).toBe(false);
+  });
+  it("through the tailnet proxy, only allowlisted logins may write (case-insensitive)", () => {
+    const via = { ...base, host: "box.tail1234.ts.net", origin: "https://box.tail1234.ts.net" };
+    expect(isWriteAllowed({ ...via, tailscaleLogin: "bara@x.com", writers: ["Bara@X.com"] }).ok).toBe(true);
+    expect(isWriteAllowed({ ...via, tailscaleLogin: "other@x.com", writers: ["bara@x.com"] }).ok).toBe(false);
+  });
+  it("through the tailnet proxy with no allowlist configured, nobody may write", () => {
+    expect(isWriteAllowed({ ...base, tailscaleLogin: "bara@x.com", writers: [] }).ok).toBe(false);
   });
 });

@@ -96,6 +96,23 @@ function render() {
       a.target = "_blank";
       actions.appendChild(a);
     }
+    if (!r.unreadable && r.entries.length) {
+      const approveBtn = el("button", null, "Approve");
+      approveBtn.title = "Make this run's captures the approved baseline";
+      approveBtn.onclick = async () => {
+        const names = r.entries.map((e) => e.name).join(", ");
+        if (!confirm("Approve " + names + " from " + r.dirName + "? This replaces their current baselines.")) return;
+        const res = await fetch("/api/runs/" + encodeURIComponent(r.dirName) + "/approve", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ all: true }),
+        });
+        const body = await res.json();
+        if (!res.ok) { alert("Approve refused: " + body.error); return; }
+        load();
+      };
+      actions.appendChild(approveBtn);
+    }
     const keepBtn = el("button", null, r.keep ? "Unkeep" : "Keep");
     keepBtn.onclick = async () => {
       await fetch("/api/runs/" + encodeURIComponent(r.dirName) + "/keep", { method: "POST" });

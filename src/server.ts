@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
-import { buildRunIndex, referencedRunDirs, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { buildRunIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
-import { parseManifest, type Manifest } from "./baselines";
+import { parseManifest, emptyManifest, writeManifest, approveRuns, type Manifest } from "./baselines";
 import type { Summary } from "./types";
 
 // Thin I/O layer: scans out/, reads markers/manifest, serves artifacts, and
@@ -14,6 +14,7 @@ export interface DashboardOpts {
   port: number;
   rootDir: string; // repo root (cwd) — must match the cwd used when running approve, since manifest paths are relative to it
   manifestFile: string; // absolute path to baselines/manifest.json
+  writers: string[]; // Tailscale logins allowed to change things via `tailscale serve` (VIGRESS_DASHBOARD_WRITERS)
 }
 
 function dirSizeBytes(dir: string): number {
@@ -30,24 +31,27 @@ function dirSizeBytes(dir: string): number {
   return total;
 }
 
+function readSummary(runDirAbs: string): Summary | null {
+  try {
+    const raw = JSON.parse(readFileSync(join(runDirAbs, "summary.json"), "utf8")) as Summary;
+    // Treat old schema summaries whose run entries lack steps/stepDiffs/regions as unreadable
+    // so buildRunIndex doesn't crash iterating them.
+    const hasRequiredFields = Array.isArray(raw.runs) && raw.runs.every(
+      (r) => Array.isArray(r.steps) && Array.isArray(r.stepDiffs) && Array.isArray(r.regions),
+    );
+    return hasRequiredFields ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 function scanRunDirs(o: DashboardOpts): RunDirInfo[] {
   if (!existsSync(o.outDirAbs)) return [];
   return readdirSync(o.outDirAbs, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d): RunDirInfo => {
       const abs = join(o.outDirAbs, d.name);
-      let summary: Summary | null = null;
-      try {
-        const raw = JSON.parse(readFileSync(join(abs, "summary.json"), "utf8")) as Summary;
-        // Treat old schema summaries whose run entries lack steps/stepDiffs/regions as unreadable
-        // so buildRunIndex doesn't crash iterating them.
-        const hasRequiredFields = Array.isArray(raw.runs) && raw.runs.every(
-          (r) => Array.isArray(r.steps) && Array.isArray(r.stepDiffs) && Array.isArray(r.regions),
-        );
-        summary = hasRequiredFields ? raw : null;
-      } catch {
-        summary = null; // unreadable/legacy — still listed, still cleanable
-      }
+      const summary = readSummary(abs); // null = unreadable/legacy — still listed, still cleanable
       return {
         dirName: d.name,
         relPath: relative(o.rootDir, abs),
@@ -90,9 +94,20 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
   return Bun.serve({
     hostname: "127.0.0.1", // it can delete files — never exposed beyond localhost
     port: o.port,
-    fetch(req: Request): Response {
+    async fetch(req: Request): Promise<Response> {
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean);
+
+      // Every state-changing route goes through one guard (Origin + Tailscale identity).
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        const g = isWriteAllowed({
+          origin: req.headers.get("origin"),
+          host: req.headers.get("host"),
+          tailscaleLogin: req.headers.get("tailscale-user-login"),
+          writers: o.writers,
+        });
+        if (!g.ok) return json({ error: g.reason }, 403);
+      }
 
       if (req.method === "GET" && url.pathname === "/") {
         return new Response(buildDashboardHtml(), { headers: { "content-type": "text/html; charset=utf-8" } });
@@ -143,6 +158,38 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         }
         writeFileSync(marker, "");
         return json({ keep: true });
+      }
+
+      // POST /api/runs/<dirName>/approve — body {name} or {all:true}. Same rules as
+      // `vigress approve` (approveRuns); artifacts stay in place, only the manifest changes.
+      if (req.method === "POST" && parts[0] === "api" && parts[1] === "runs" && parts[3] === "approve" && parts.length === 4) {
+        const dir = dirSegment(parts[2]);
+        if (!dir) return new Response("forbidden", { status: 403 });
+        const abs = join(o.outDirAbs, dir);
+        if (!existsSync(abs)) return json({ error: "run dir not found" }, 404);
+        const summary = readSummary(abs);
+        if (!summary) return json({ error: "run has no readable summary.json — re-run the comparison" }, 400);
+        let body: { name?: unknown; all?: unknown };
+        try {
+          body = (await req.json()) as typeof body;
+        } catch {
+          return json({ error: "expected a JSON body" }, 400);
+        }
+        const which = body.all === true ? null : typeof body.name === "string" && body.name ? body.name : undefined;
+        if (which === undefined) return json({ error: 'expected {"name": "<run>"} or {"all": true}' }, 400);
+        let manifest: Manifest;
+        try {
+          // A corrupt manifest must not be silently replaced by an empty one.
+          manifest = existsSync(o.manifestFile) ? parseManifest(readFileSync(o.manifestFile, "utf8")) : emptyManifest();
+        } catch (e) {
+          return json({ error: `manifest unreadable: ${e instanceof Error ? e.message : String(e)}` }, 500);
+        }
+        const runDirRel = relative(o.rootDir, abs);
+        const res = approveRuns(manifest, summary, runDirRel, which, (t) => existsSync(join(abs, t)), new Date().toISOString());
+        if (!res.ok) return json({ error: res.message }, 400);
+        writeManifest(o.manifestFile, res.manifest);
+        writeFileSync(join(abs, ".approved"), res.approved.map((r) => r.name).join("\n") + "\n");
+        return json({ approved: res.approved.map((r) => r.name), from: runDirRel });
       }
 
       // DELETE /api/runs/<dirName> — server-side lock re-check, UI is advisory.
