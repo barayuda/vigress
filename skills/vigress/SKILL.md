@@ -13,6 +13,17 @@ repo; uses system Chrome.
 
 ## Rules for agents (read first)
 
+0. **Check Bun first.** Run `command -v bun`. If it is missing, **stop and ask
+   the user before installing anything** — say what you will install and how.
+   Install only after an explicit yes, then verify with `bun --version`:
+   - macOS with Homebrew: `brew install oven-sh/bun/bun`
+   - macOS/Linux otherwise: `curl -fsSL https://bun.sh/install | bash`, which
+     writes to `~/.bun` and edits the shell profile (tell the user this; they
+     may need to open a new shell or `export PATH="$HOME/.bun/bin:$PATH"`)
+   - Windows: ask the user to follow https://bun.sh/docs/installation
+   If the user declines, do not work around it with npm/node; the CLI needs Bun.
+   Then run `bun install` once in the CLI folder (also ask first; it writes
+   `node_modules`).
 1. **Never run `login` or `dashboard` yourself.** `login` blocks on a human
    signing in and pressing Enter; `dashboard` serves until Ctrl-C. Both hang an
    agent session — ask the human to run them. `login --check` is the safe,
