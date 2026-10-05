@@ -4,7 +4,7 @@ import { buildRunIndex, buildRunDetail, parseRunFilter, filterRuns, buildBaselin
 import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, type Manifest } from "./baselines";
 import type { Summary } from "./types";
-import { isRunnableConfigName, listRunnableConfigs, canStart, startJob, finishJob, appendTail, JOB_TIMEOUT_MS, type Job } from "./jobs";
+import { isRunnableConfigName, listRunnableConfigs, canStart, startJob, finishJob, appendTail, configRunArgs, baselineRunArgs, JOB_TIMEOUT_MS, type Job } from "./jobs";
 
 // Thin I/O layer: scans out/, reads markers/manifest, serves artifacts, and
 // executes guarded deletes. All decisions (locking, cleanup selection, path
@@ -99,13 +99,10 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
 
   // Runs the CLI as a child process, exactly as `vigress --config <file> --json` would,
   // so the dashboard never re-implements a run. Output is captured, not shown live.
-  function launch(config: string): Job {
-    const started = startJob(crypto.randomUUID().slice(0, 8), config, new Date().toISOString());
+  function launch(label: string, args: string[]): Job {
+    const started = startJob(crypto.randomUUID().slice(0, 8), label, new Date().toISOString());
     job = started;
-    const proc = Bun.spawn(
-      [process.execPath, CLI_PATH, "--config", join(o.rootDir, config), "--json", "--out", o.outDirAbs],
-      { cwd: o.rootDir, stdout: "pipe", stderr: "pipe", env: process.env },
-    );
+    const proc = Bun.spawn([process.execPath, CLI_PATH, ...args], { cwd: o.rootDir, stdout: "pipe", stderr: "pipe", env: process.env });
     let stdout = "";
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; proc.kill(); }, JOB_TIMEOUT_MS);
@@ -159,7 +156,7 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
 
       // Saved configs the page may run: *.fullcheck.json files in the repo root, nothing else.
       if (req.method === "GET" && url.pathname === "/api/configs") {
-        return json({ configs: configNames() });
+        return json({ configs: configNames(), baselines: Object.keys(loadManifest(o)?.baselines ?? {}).sort() });
       }
 
       // Latest job, plus the run dir name (under out/) once it has produced one.
@@ -168,22 +165,41 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         return json({ job, runDir: underOut });
       }
 
-      // POST /api/jobs — body {config}. Starts a saved config; 409 while one is running.
+      // POST /api/jobs — body {config} (a saved config) or {baseline} (re-check an approved
+      // baseline). 409 while one is running.
       if (req.method === "POST" && url.pathname === "/api/jobs") {
-        let body: { config?: unknown };
+        let body: { config?: unknown; baseline?: unknown };
         try {
           body = (await req.json()) as typeof body;
         } catch {
           return json({ error: "expected a JSON body" }, 400);
         }
         const config = body.config;
-        if (typeof config !== "string" || !isRunnableConfigName(config)) {
-          return json({ error: "config must be a *.fullcheck.json file name" }, 400);
+        const baseline = body.baseline;
+        if ((config === undefined) === (baseline === undefined)) {
+          return json({ error: 'send exactly one of {"config": "<name>.fullcheck.json"} or {"baseline": "<name>"}' }, 400);
         }
-        if (!configNames().includes(config)) return json({ error: `no such config: ${config}` }, 404);
+        let label: string;
+        let args: string[];
+        if (config !== undefined) {
+          if (typeof config !== "string" || !isRunnableConfigName(config)) {
+            return json({ error: "config must be a *.fullcheck.json file name" }, 400);
+          }
+          if (!configNames().includes(config)) return json({ error: `no such config: ${config}` }, 404);
+          label = config;
+          args = configRunArgs(join(o.rootDir, config), o.outDirAbs);
+        } else {
+          if (typeof baseline !== "string" || baseline === "") return json({ error: "baseline must be a name" }, 400);
+          const entries = loadManifest(o)?.baselines ?? {};
+          if (!Object.hasOwn(entries, baseline)) return json({ error: `no approved baseline: ${baseline}` }, 404);
+          const plan = baselineRunArgs(baseline, entries[baseline], o.outDirAbs);
+          if (!plan.ok) return json({ error: plan.reason }, 400);
+          label = `baseline:${baseline}`;
+          args = plan.args;
+        }
         const can = canStart(job);
         if (!can.ok) return json({ error: can.reason }, 409);
-        return json({ job: launch(config) }, 202);
+        return json({ job: launch(label, args) }, 202);
       }
 
       // GET /api/runs/<dirName>/detail — the reviewable parts of one run's summary.json.

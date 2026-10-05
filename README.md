@@ -374,9 +374,9 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 | `GET` | `/` | Dashboard HTML page. |
 | `GET` | `/api/runs` | JSON array of run-dir entries (sorted newest-first). Optional filters, combined with AND: `q=<text>` (run dir or entry name, case-insensitive), `issues=1`, `locked=1`, `min=<pct>` (worst mismatch at least this). Unknown values are ignored, so a bad filter never hides runs. |
 | `GET` | `/api/runs/<dir>/detail` | The reviewable parts of one run's `summary.json`, one entry per comparison: `name`, `images` (ready `/files/…` URLs: `target`, and `baseline`/`diff`/`video` when present), `mismatchPercent`, `heightDelta`, `bootstrap`, `issues`, `failedSteps[]`, `regions[]` (with `styleMismatches`) and `stepDiffs[]`. `404` if the dir is missing or has no readable summary. The page shows it under **Details**, with a side-by-side / slider comparison of baseline, target and diff. |
-| `GET` | `/api/configs` | `{ configs: string[] }` — the `*.fullcheck.json` files in the repo root (plain file names only). These are the only things the page can run. |
+| `GET` | `/api/configs` | `{ configs, baselines }` — the `*.fullcheck.json` files in the repo root (plain file names only) and the approved baseline names. These are the only things the page can run. |
 | `GET` | `/api/jobs` | `{ job, runDir }` — the latest run started from the page (`state`: `running`/`done`/`failed`, `exitCode`, `error`, last output lines) and, once it produced one, the run dir name under `out/`. |
-| `POST` | `/api/jobs` | Starts a saved config: body `{ "config": "<name>.fullcheck.json" }`. `202` + `{ job }`; `400` for anything that is not a plain `*.fullcheck.json` name (paths, traversal, URLs); `404` if the file is not there; `409` while another run is going. |
+| `POST` | `/api/jobs` | Starts a run: body `{ "config": "<name>.fullcheck.json" }` **or** `{ "baseline": "<name>" }` (exactly one). `202` + `{ job }`; `400` for a bad name (paths, traversal, URLs), both/neither field, or a baseline without an http(s) source URL; `404` if the file or baseline does not exist; `409` while another run is going. |
 | `GET` | `/api/baselines` | JSON array of approved baselines from `baselines/manifest.json` (sorted by name): `name`, `approvedAt`, `approvedFrom`, `viewport`, `sourceUrl`, `fullPage`, `stepCount`, `missing` (artifact paths no longer on disk). Re-read per request. |
 | `GET` | `/files/<run>/<path>` | Serves an artifact from `out/<run>/`. Path-traversal guarded (lexical + realpath symlink check); dot-prefixed path segments (e.g. `.keep`, `.approved`) are refused with `403`; returns `403` on any escape attempt. |
 | `POST` | `/api/runs/<dir>/keep` | Toggles the `.keep` marker file in the run dir. Returns `{ keep: true|false }`. |
@@ -388,11 +388,12 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 
 The page has a filter box and checkboxes (has issues, baseline-locked, worst mismatch ≥ N %) that map onto the `/api/runs` query above, and an **Auto-refresh** toggle that re-polls every 5 seconds and only re-renders when the list changed. Open **Details** panels stay open across refreshes. **Cleanup** always lists the unfiltered set in its confirmation, because the server deletes every run that is neither kept nor locked, whatever the list is filtered to.
 
-### Running a saved config
+### Running a saved config or re-checking a baseline
 
-The page has a **Run a saved config** bar: pick one of the `*.fullcheck.json` files in the repo root and press **Run**. The dashboard launches the CLI as a child process exactly like `vigress --config <file> --json --out <out>`, so a run from the page and a run from the terminal are the same thing (the child inherits your environment, including `VIGRESS_STATE` and `VIGRESS_BROWSER`).
+The page has a **Run** bar: pick one of the `*.fullcheck.json` files in the repo root, or an approved baseline to re-check, and press **Run**. The dashboard launches the CLI as a child process exactly like `vigress --config <file> --json --out <out>`, so a run from the page and a run from the terminal are the same thing (the child inherits your environment, including `VIGRESS_STATE` and `VIGRESS_BROWSER`).
 
-- **Only saved configs.** The page can never run a free-text URL, a path or a file outside the repo root, so it cannot be used to make the host visit arbitrary addresses. What the run visits is whatever the config file says.
+- **Re-checking a baseline** runs `vigress --target=<the baseline's source URL> --against=baseline:<name> --name=<name> --viewport=<approved WxH> [--full-page]`, i.e. it captures the approved page again and diffs it against the approved capture, in the same mode it was approved with. The URL comes from `baselines/manifest.json` (and must be http(s)), never from the page.
+- **Only saved configs and approved baselines.** The page can never run a free-text URL, a path or a file outside the repo root, so it cannot be used to make the host visit arbitrary addresses. What the run visits is whatever the config file says.
 - **One at a time.** A second start returns `409`; the Run button is disabled while one is running.
 - **15-minute limit.** A run that takes longer is killed and reported as `failed: timed out`.
 - Output is captured, not streamed: the page polls every 2 seconds, shows the last lines when a run fails, and links the report when it finishes. The new run appears in the list.

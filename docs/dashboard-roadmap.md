@@ -53,7 +53,7 @@ proxy is the only path in. Update that bullet when Stage 3 ships.
 | # | Ticket | Notes |
 |---|--------|-------|
 | 2.1 | ✅ Job runner | One-at-a-time child process of the CLI; status endpoint. |
-| 2.2 | ◐ Start from a saved config or baseline | Saved configs done; `baseline:<name>` refs (using the manifest's `sourceUrl`) still to do. |
+| 2.2 | ✅ Start from a saved config or baseline | Saved configs and `baseline:<name>` re-checks (manifest `sourceUrl`, approved viewport and capture mode). |
 | 2.3 | ◐ Live status | Polling every 2 s with the last output lines on failure and the finished run in the list; live streaming (server-sent events) still to do. |
 | 2.4 | `init-config` / `discover` launcher | Same allowed-target rule. |
 
