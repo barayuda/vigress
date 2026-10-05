@@ -1,9 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, basename } from "node:path";
 import { buildRunIndex, buildRunDetail, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, type Manifest } from "./baselines";
 import type { Summary } from "./types";
+import { isRunnableConfigName, listRunnableConfigs, canStart, startJob, finishJob, appendTail, JOB_TIMEOUT_MS, type Job } from "./jobs";
 
 // Thin I/O layer: scans out/, reads markers/manifest, serves artifacts, and
 // executes guarded deletes. All decisions (locking, cleanup selection, path
@@ -87,7 +88,46 @@ function dirSegment(raw: string): string | null {
   return name;
 }
 
+const CLI_PATH = join(import.meta.dir, "cli.ts");
+
 export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
+  // The latest run-a-config job (running or finished); at most one runs at a time.
+  let job: Job | null = null;
+
+  const configNames = (): string[] =>
+    listRunnableConfigs(readdirSync(o.rootDir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name));
+
+  // Runs the CLI as a child process, exactly as `vigress --config <file> --json` would,
+  // so the dashboard never re-implements a run. Output is captured, not shown live.
+  function launch(config: string): Job {
+    const started = startJob(crypto.randomUUID().slice(0, 8), config, new Date().toISOString());
+    job = started;
+    const proc = Bun.spawn(
+      [process.execPath, CLI_PATH, "--config", join(o.rootDir, config), "--json", "--out", o.outDirAbs],
+      { cwd: o.rootDir, stdout: "pipe", stderr: "pipe", env: process.env },
+    );
+    let stdout = "";
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; proc.kill(); }, JOB_TIMEOUT_MS);
+    const pump = async (stream: ReadableStream<Uint8Array>, isStdout: boolean): Promise<void> => {
+      const dec = new TextDecoder();
+      for await (const chunk of stream) {
+        const text = dec.decode(chunk, { stream: true });
+        if (isStdout) stdout += text;
+        else if (job?.id === started.id) job = { ...job, tail: appendTail(job.tail, text) };
+      }
+    };
+    void (async () => {
+      await Promise.all([pump(proc.stdout, true), pump(proc.stderr, false)]);
+      const code = await proc.exited;
+      clearTimeout(timer);
+      if (job?.id === started.id) {
+        job = finishJob(job, { exitCode: code, now: new Date().toISOString(), stdout, error: timedOut ? "timed out" : undefined });
+      }
+    })();
+    return started;
+  }
+
   // Resolve once at startup — constant for the server's lifetime.
   const realOutDir = realpathSync(o.outDirAbs);
 
@@ -115,6 +155,35 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
 
       if (req.method === "GET" && url.pathname === "/api/runs") {
         return json(filterRuns(currentIndex(o), parseRunFilter(url.searchParams)));
+      }
+
+      // Saved configs the page may run: *.fullcheck.json files in the repo root, nothing else.
+      if (req.method === "GET" && url.pathname === "/api/configs") {
+        return json({ configs: configNames() });
+      }
+
+      // Latest job, plus the run dir name (under out/) once it has produced one.
+      if (req.method === "GET" && url.pathname === "/api/jobs") {
+        const underOut = job?.outDir && job.outDir.startsWith(o.outDirAbs + "/") ? basename(job.outDir) : undefined;
+        return json({ job, runDir: underOut });
+      }
+
+      // POST /api/jobs — body {config}. Starts a saved config; 409 while one is running.
+      if (req.method === "POST" && url.pathname === "/api/jobs") {
+        let body: { config?: unknown };
+        try {
+          body = (await req.json()) as typeof body;
+        } catch {
+          return json({ error: "expected a JSON body" }, 400);
+        }
+        const config = body.config;
+        if (typeof config !== "string" || !isRunnableConfigName(config)) {
+          return json({ error: "config must be a *.fullcheck.json file name" }, 400);
+        }
+        if (!configNames().includes(config)) return json({ error: `no such config: ${config}` }, 404);
+        const can = canStart(job);
+        if (!can.ok) return json({ error: can.reason }, 409);
+        return json({ job: launch(config) }, 202);
       }
 
       // GET /api/runs/<dirName>/detail — the reviewable parts of one run's summary.json.

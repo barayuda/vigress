@@ -26,12 +26,24 @@ describe("buildDashboardHtml", () => {
     expect(html).toContain("Auto-refresh");
     expect(html).toContain('"/api/runs?"');
   });
+  it("has a run bar for saved configs wired to the jobs API", () => {
+    expect(html).toContain('id="cfg"');
+    expect(html).toContain('id="run"');
+    expect(html).toContain('"/api/jobs"');
+    expect(html).toContain('"/api/configs"');
+  });
   it("wires the approve action", () => {
     expect(html).toContain("/approve");
   });
   it("has a baselines section wired to its API", () => {
     expect(html).toContain('id="baselines"');
     expect(html).toContain('fetch("/api/baselines")');
+  });
+  it("ships a page script that actually parses", () => {
+    // A string-only check cannot see a stray raw newline inside a JS string (a template-literal
+    // escape slip), which makes the browser reject the whole script and blanks the page.
+    const script = html.match(/<script>([\s\S]*)<\/script>/)![1];
+    expect(() => new Function(script)).not.toThrow();
   });
   it("has the run list container and cleanup button", () => {
     expect(html).toContain('id="runs"');
