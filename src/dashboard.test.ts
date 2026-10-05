@@ -96,6 +96,27 @@ describe("buildRunIndex", () => {
   });
 });
 
+describe("buildRunIndex git", () => {
+  it("carries the run's git info so the page can show branch@commit", () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    const g = { commit: sha, branch: "feat/x", dirty: true, url: `https://github.com/o/r/commit/${sha}` };
+    const idx = buildRunIndex([dir({ summary: { ...summary([run()]), git: g } }), dir({ dirName: "none", relPath: "out/none" })], new Map());
+    expect(idx.find((e) => e.dirName === "2026-07-06_15-11-50")!.git).toEqual(g);
+    expect(idx.find((e) => e.dirName === "none")!.git).toBeUndefined();
+  });
+  it("drops a commit URL that is not exactly a GitHub commit page (summary.json is a file on disk)", () => {
+    const sha = "0123456789abcdef0123456789abcdef01234567";
+    for (const url of ["javascript:alert(1)", "https://evil.example/o/r/commit/" + sha, "https://github.com/o/r/commit/" + sha + "\"onmouseover=x", "http://github.com/o/r/commit/" + sha]) {
+      const [e] = buildRunIndex([dir({ summary: { ...summary([run()]), git: { commit: sha, dirty: false, url } } })], new Map());
+      expect(e.git).toEqual({ commit: sha, dirty: false });
+    }
+  });
+  it("drops git info whose commit is not a 40-hex sha", () => {
+    const [e] = buildRunIndex([dir({ summary: { ...summary([run()]), git: { commit: "<script>", dirty: false } } })], new Map());
+    expect(e.git).toBeUndefined();
+  });
+});
+
 describe("cleanupSelection", () => {
   it("selects only dirs that are neither keep nor locked", () => {
     const idx = buildRunIndex(

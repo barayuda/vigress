@@ -230,6 +230,21 @@ function render() {
       fmtDate(r.mtimeMs) + " · " + fmtBytes(r.sizeBytes) +
       (r.entries.length ? " · " + r.entries.map((e) => e.name + (e.bootstrap ? " (bootstrap)" : " " + (e.mismatchPercent ?? 0) + "%")).join(", ") : "") +
       (r.worstMismatch ? " · worst " + r.worstMismatch + "%" : "")));
+    if (r.git) {
+      const g = el("div", "meta");
+      const label = (r.git.branch ? r.git.branch + "@" : "") + r.git.commit.slice(0, 7) + (r.git.dirty ? " (uncommitted changes)" : "");
+      if (r.git.url) {
+        // The server only passes on an exact github.com commit URL.
+        const a = el("a", "report", label);
+        a.href = r.git.url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        g.appendChild(a);
+      } else {
+        g.textContent = label;
+      }
+      info.appendChild(g);
+    }
     const badges = el("div", "badges");
     if (r.lockedBy.length) badges.appendChild(el("span", "b-locked", "🔒 baseline: " + r.lockedBy.join(", ")));
     if (r.keep) badges.appendChild(el("span", "b-keep", "keep"));

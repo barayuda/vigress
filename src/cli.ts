@@ -16,7 +16,8 @@ import { writeReport } from "./report";
 import { buildJsonPayload } from "./json";
 import { resolveStyles, styleProps, diffStyleValues, type StyleItem, type StyleValues } from "./style";
 import { extractCandidates, gotoAndSettle, isSafeCandidate, dedupeCandidates, clusterBoxesIntoRegions, buildDiscoveredConfig } from "./discover";
-import { SCHEMA_VERSION, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type StepDiff, type Summary } from "./types";
+import { buildGitInfo } from "./gitinfo";
+import { SCHEMA_VERSION, type GitInfo, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type StepDiff, type Summary } from "./types";
 import { startDashboard } from "./server";
 
 const { values, positionals } = parseArgs({
@@ -59,6 +60,21 @@ const { values, positionals } = parseArgs({
 
 function log(quiet: boolean, msg: string): void {
   if (!quiet) process.stdout.write(msg + "\n");
+}
+
+function gitOut(...args: string[]): string {
+  const r = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "ignore" });
+  return r.exitCode === 0 ? r.stdout.toString() : "";
+}
+
+// The git repo in the working directory, if any: lets a run be tied back to a commit.
+function collectGitInfo(): GitInfo | undefined {
+  return buildGitInfo({
+    commit: gitOut("rev-parse", "HEAD"),
+    branch: gitOut("rev-parse", "--abbrev-ref", "HEAD"),
+    dirty: gitOut("status", "--porcelain").trim() !== "",
+    remote: gitOut("remote", "get-url", "origin"),
+  });
 }
 
 function mergeChecklist(items: ChecklistItem[], regions: RegionScore[]): ChecklistItem[] {
@@ -527,11 +543,13 @@ async function main(): Promise<number> {
     await browser.close();
   }
 
+  const gitInfo = collectGitInfo();
   const summary: Summary = {
     schemaVersion: SCHEMA_VERSION,
     outDir,
     reportHtml: "report.html",
     summaryJson: "summary.json",
+    ...(gitInfo ? { git: gitInfo } : {}),
     runs: results,
   };
   writeReport(summary);

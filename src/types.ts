@@ -5,7 +5,17 @@ import type { StyleDiffEntry } from "./style";
 // with baseline/diff/mismatch omitted.
 // v8: RunResult.fullPage — lets `approve` record the capture mode in the manifest.
 // v9: RunResult.heightDelta — target height minus baseline height when they differ.
-export const SCHEMA_VERSION = 9;
+// v10: Summary.git — the commit/branch the run was started from.
+export const SCHEMA_VERSION = 10;
+
+// Where a run was started from (the git repo in the working directory), so a run can be
+// tied back to a commit and, through its GitHub page, to a pull request.
+export interface GitInfo {
+  commit: string; // full 40-hex sha
+  branch?: string; // absent on a detached HEAD
+  dirty: boolean; // uncommitted changes were present
+  url?: string; // GitHub commit page, when origin is a GitHub remote
+}
 
 export interface BoxDims {
   width: number;
@@ -84,5 +94,6 @@ export interface Summary {
   outDir: string;
   reportHtml: string;
   summaryJson: string;
+  git?: GitInfo; // absent outside a git repo
   runs: RunResult[];
 }
