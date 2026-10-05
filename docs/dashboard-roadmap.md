@@ -61,8 +61,8 @@ proxy is the only path in. Update that bullet when Stage 3 ships.
 
 | # | Ticket | Notes |
 |---|--------|-------|
-| 3.1 | Tailscale serving + write allowlist | The security model above; document `tailscale serve --bg --https=<port> localhost:4600`. |
-| 3.2 | History and trends per run name | Mismatch % and `heightDelta` over time from existing `summary.json` files. |
+| 3.1 | ✅ Tailscale serving + write allowlist | The security model above; document `tailscale serve --bg --https=<port> localhost:4600`. |
+| 3.2 | ✅ History and trends per run name | Mismatch % and `heightDelta` over time from existing `summary.json` files. |
 | 3.3 | PR links | Link a run to a PR/commit when known. |
 
 Remote artifact storage is a separate effort (the manifest reserves

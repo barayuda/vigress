@@ -170,6 +170,38 @@ export function buildBaselineIndex(manifest: Manifest | null, exists: (relPath: 
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export const TREND_MAX_POINTS = 50;
+
+export interface TrendPoint {
+  dirName: string;
+  mtimeMs: number;
+  mismatchPercent: number;
+  heightDelta?: number; // px of page height not compared, when non-zero
+  baselineType: string;
+}
+
+// Mismatch % (and height difference) over time, per comparison name, from the
+// summary.json files already on disk. Bootstrap runs and runs with no mismatch
+// value (nothing was diffed) are not data points; unreadable dirs are skipped.
+// Oldest first, capped to the most recent TREND_MAX_POINTS per name.
+export function buildTrends(dirs: RunDirInfo[]): Record<string, TrendPoint[]> {
+  const byName: Record<string, TrendPoint[]> = {};
+  for (const d of [...dirs].sort((a, b) => a.mtimeMs - b.mtimeMs)) {
+    for (const r of d.summary?.runs ?? []) {
+      if (r.bootstrap || r.mismatchPercent === undefined) continue;
+      (byName[r.name] ??= []).push({
+        dirName: d.dirName,
+        mtimeMs: d.mtimeMs,
+        mismatchPercent: r.mismatchPercent,
+        ...(r.heightDelta ? { heightDelta: r.heightDelta } : {}),
+        baselineType: r.baselineType,
+      });
+    }
+  }
+  for (const name of Object.keys(byName)) byName[name] = byName[name].slice(-TREND_MAX_POINTS);
+  return byName;
+}
+
 export interface RunFilter {
   text?: string; // lowercased; matches the run dir name or any entry name
   issues?: true; // only runs with issues

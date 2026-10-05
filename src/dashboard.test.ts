@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { referencedRunDirs, buildRunIndex, buildRunDetail, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { referencedRunDirs, buildRunIndex, buildRunDetail, buildTrends, TREND_MAX_POINTS, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -307,5 +307,44 @@ describe("filterRuns", () => {
   it("combines every condition (AND)", () => {
     expect(names({ text: "contact", min: 3 })).toEqual(["2026-10-04_d"]);
     expect(names({ text: "contact", issues: true })).toEqual([]);
+  });
+});
+
+describe("buildTrends", () => {
+  const d = (dirName: string, mtimeMs: number, runs: RunResult[]) => dir({ dirName, relPath: "out/" + dirName, mtimeMs, summary: summary(runs) });
+
+  it("groups points by run name, oldest first", () => {
+    const t = buildTrends([
+      d("c", 30, [run({ name: "contact", mismatchPercent: 3 })]),
+      d("a", 10, [run({ name: "contact", mismatchPercent: 1 }), run({ name: "billing", mismatchPercent: 8 })]),
+      d("b", 20, [run({ name: "contact", mismatchPercent: 2, heightDelta: -40 })]),
+    ]);
+    expect(Object.keys(t).sort()).toEqual(["billing", "contact"]);
+    expect(t.contact.map((p) => [p.dirName, p.mismatchPercent])).toEqual([["a", 1], ["b", 2], ["c", 3]]);
+    expect(t.contact[1].heightDelta).toBe(-40);
+    expect(t.billing).toHaveLength(1);
+  });
+  it("skips bootstrap runs and runs without a mismatch value", () => {
+    const t = buildTrends([
+      d("a", 1, [run({ name: "x", bootstrap: true, mismatchPercent: undefined })]),
+      d("b", 2, [run({ name: "x", mismatchPercent: undefined })]),
+      d("c", 3, [run({ name: "x", mismatchPercent: 0 })]),
+    ]);
+    expect(t.x.map((p) => p.dirName)).toEqual(["c"]);
+  });
+  it("skips unreadable run dirs and drops names left with no points", () => {
+    const t = buildTrends([dir({ dirName: "bad", summary: null }), d("a", 1, [run({ name: "only-bootstrap", bootstrap: true, mismatchPercent: undefined })])]);
+    expect(t).toEqual({});
+  });
+  it("keeps only the most recent points per name", () => {
+    const many = Array.from({ length: TREND_MAX_POINTS + 7 }, (_, i) => d("r" + i, i, [run({ name: "n", mismatchPercent: i })]));
+    const t = buildTrends(many);
+    expect(t.n).toHaveLength(TREND_MAX_POINTS);
+    expect(t.n[0].mismatchPercent).toBe(7);
+    expect(t.n[t.n.length - 1].mismatchPercent).toBe(TREND_MAX_POINTS + 6);
+  });
+  it("records the baseline type so a parity run and a regression run can be told apart", () => {
+    const t = buildTrends([d("a", 1, [run({ name: "n", baselineType: "baseline" })])]);
+    expect(t.n[0].baselineType).toBe("baseline");
   });
 });
