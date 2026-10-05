@@ -70,7 +70,7 @@ export function buildDashboardHtml(): string {
   <button class="danger" id="cleanup">Cleanup</button>
 </header>
 <div class="runbar">
-  <label>Run a saved config <select id="cfg"></select></label>
+  <label>Run <select id="cfg"></select></label>
   <button id="run">Run</button>
   <span id="jobstatus"></span>
 </div>
@@ -347,16 +347,25 @@ let polling = null;
 const statusEl = document.getElementById("jobstatus");
 const tailEl = document.getElementById("jobtail");
 
+// Option values are "config:<file>" or "baseline:<name>"; the server re-validates both.
 async function loadConfigs() {
-  const { configs } = await (await fetch("/api/configs")).json();
+  const { configs, baselines } = await (await fetch("/api/configs")).json();
   const sel = document.getElementById("cfg");
   sel.replaceChildren();
-  for (const c of configs) { const o = document.createElement("option"); o.value = c; o.textContent = c; sel.appendChild(o); }
-  document.getElementById("run").disabled = configs.length === 0;
-  if (!configs.length) { const o = document.createElement("option"); o.textContent = "no *.fullcheck.json in the repo root"; sel.appendChild(o); }
+  const group = (label, kind, names) => {
+    if (!names.length) return;
+    const g = document.createElement("optgroup");
+    g.label = label;
+    for (const n of names) { const o = document.createElement("option"); o.value = kind + ":" + n; o.textContent = n; g.appendChild(o); }
+    sel.appendChild(g);
+  };
+  group("Saved configs", "config", configs);
+  group("Re-check an approved baseline", "baseline", baselines);
+  if (!sel.options.length) { const o = document.createElement("option"); o.textContent = "nothing to run: no *.fullcheck.json in the repo root, no approved baselines"; sel.appendChild(o); }
+  document.getElementById("run").disabled = !canRun();
 }
 
-const canRun = () => document.getElementById("cfg").value.endsWith(".fullcheck.json");
+const canRun = () => /^(config|baseline):./.test(document.getElementById("cfg").value);
 
 function showJob(data) {
   const j = data.job;
@@ -395,12 +404,16 @@ function startPolling() {
 }
 
 document.getElementById("run").onclick = async () => {
-  const config = document.getElementById("cfg").value;
-  if (!confirm("Run " + config + "? This launches a browser and visits the URLs in that file.")) return;
+  const value = document.getElementById("cfg").value;
+  const i = value.indexOf(":");
+  const kind = value.slice(0, i), name = value.slice(i + 1);
+  const what = kind === "baseline" ? "Re-check baseline " + name + "? This launches a browser, captures its source URL and diffs it against the approved capture."
+                                   : "Run " + name + "? This launches a browser and visits the URLs in that file.";
+  if (!confirm(what)) return;
   const res = await fetch("/api/jobs", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ config }),
+    body: JSON.stringify(kind === "baseline" ? { baseline: name } : { config: name }),
   });
   const body = await res.json();
   if (!res.ok) { alert("Run refused: " + body.error); return; }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { isRunnableConfigName, listRunnableConfigs, canStart, appendTail, parseOutDir, startJob, finishJob, JOB_TAIL_LINES } from "./jobs";
+import { isRunnableConfigName, listRunnableConfigs, canStart, appendTail, parseOutDir, startJob, finishJob, configRunArgs, baselineRunArgs, JOB_TAIL_LINES } from "./jobs";
+import type { ManifestEntry } from "./baselines";
 
 describe("isRunnableConfigName", () => {
   it("accepts a plain *.fullcheck.json file name", () => {
@@ -79,5 +80,48 @@ describe("startJob / finishJob", () => {
   it("records an error (e.g. a timeout) as failed", () => {
     const r = finishJob(startJob("j1", "a.fullcheck.json", "t0"), { exitCode: null, now: "t1", stdout: "", error: "timed out" });
     expect(r).toMatchObject({ state: "failed", error: "timed out" });
+  });
+});
+
+describe("configRunArgs", () => {
+  it("runs the config exactly as the CLI would, as separate arguments", () => {
+    expect(configRunArgs("/repo/a.fullcheck.json", "/repo/out")).toEqual(["--config", "/repo/a.fullcheck.json", "--json", "--out", "/repo/out"]);
+  });
+});
+
+describe("baselineRunArgs", () => {
+  const entry = (over: Partial<ManifestEntry> = {}): ManifestEntry => ({
+    storage: "local", approvedAt: "t", approvedFrom: "out/x", viewport: { width: 1280, height: 800 },
+    sourceUrl: "https://app.test/contact", artifacts: { main: "out/x/c.png", steps: {} }, ...over,
+  });
+
+  it("re-captures the approved source URL against the baseline, at the approved viewport", () => {
+    const r = baselineRunArgs("contact", entry(), "/repo/out");
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.args).toEqual([
+        "--target=https://app.test/contact", "--against=baseline:contact", "--name=contact",
+        "--viewport=1280x800", "--json", "--out", "/repo/out",
+      ]);
+    }
+  });
+  it("adds --full-page when the baseline was approved from a full-page run", () => {
+    const r = baselineRunArgs("contact", entry({ fullPage: true }), "/repo/out");
+    expect(r.ok && r.args).toContain("--full-page");
+  });
+  it("uses --name=value forms, so a name starting with '-' cannot become a flag", () => {
+    const r = baselineRunArgs("-x", entry(), "/repo/out");
+    expect(r.ok && r.args.filter((a) => a.startsWith("--name") || a.startsWith("--against"))).toEqual(["--against=baseline:-x", "--name=-x"]);
+  });
+  it("refuses a source URL that is not http(s)", () => {
+    for (const bad of ["file:///etc/passwd", "javascript:alert(1)", "figma:K/1:2", "", "not a url"]) {
+      const r = baselineRunArgs("contact", entry({ sourceUrl: bad }), "/repo/out");
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/http/);
+    }
+  });
+  it("refuses a nonsensical viewport", () => {
+    expect(baselineRunArgs("c", entry({ viewport: { width: 0, height: 800 } }), "/o").ok).toBe(false);
+    expect(baselineRunArgs("c", entry({ viewport: { width: 1.5, height: 800 } }), "/o").ok).toBe(false);
   });
 });

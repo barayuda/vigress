@@ -1,3 +1,5 @@
+import type { ManifestEntry } from "./baselines";
+
 // Pure core of the dashboard's "run a saved config" feature. server.ts owns the
 // I/O (spawning the CLI, streams, timer); every decision lives here so it is
 // unit-testable without a browser or a child process.
@@ -76,5 +78,42 @@ export function finishJob(
     exitCode: r.exitCode,
     outDir: parseOutDir(r.stdout),
     ...(r.error ? { error: r.error } : {}),
+  };
+}
+
+// Arguments (not a shell string) for `vigress --config <file> --json --out <dir>`.
+export function configRunArgs(configAbs: string, outDirAbs: string): string[] {
+  return ["--config", configAbs, "--json", "--out", outDirAbs];
+}
+
+// A baseline re-check is a run the CLI can already do: capture the approved
+// source URL again and diff it against `baseline:<name>`, at the approved
+// viewport and capture mode. The URL comes from the manifest (a repo file), not
+// from the page, and must be http(s). `--name=value` forms mean a name that
+// starts with "-" cannot be read as a flag.
+export function baselineRunArgs(
+  name: string,
+  entry: ManifestEntry,
+  outDirAbs: string,
+): { ok: true; args: string[] } | { ok: false; reason: string } {
+  if (!/^https?:\/\/\S+$/.test(entry.sourceUrl)) {
+    return { ok: false, reason: `baseline '${name}' has no http(s) source URL to re-check (${entry.sourceUrl || "empty"})` };
+  }
+  const { width, height } = entry.viewport;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    return { ok: false, reason: `baseline '${name}' has an invalid viewport` };
+  }
+  return {
+    ok: true,
+    args: [
+      `--target=${entry.sourceUrl}`,
+      `--against=baseline:${name}`,
+      `--name=${name}`,
+      `--viewport=${width}x${height}`,
+      ...(entry.fullPage ? ["--full-page"] : []),
+      "--json",
+      "--out",
+      outDirAbs,
+    ],
   };
 }
