@@ -63,7 +63,7 @@ proxy is the only path in. Update that bullet when Stage 3 ships.
 |---|--------|-------|
 | 3.1 | ✅ Tailscale serving + write allowlist | The security model above; document `tailscale serve --bg --https=<port> localhost:4600`. |
 | 3.2 | ✅ History and trends per run name | Mismatch % and `heightDelta` over time from existing `summary.json` files. |
-| 3.3 | PR links | Link a run to a PR/commit when known. |
+| 3.3 | ✅ PR links | Each run records its commit/branch (schema 10); the dashboard links the GitHub commit page, which lists its PRs. No network call. |
 
 Remote artifact storage is a separate effort (the manifest reserves
 `storage: "remote"`); until then baselines stay per-machine.

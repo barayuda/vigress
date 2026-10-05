@@ -106,7 +106,7 @@ sections that leave the viewport). Other scroll-reveal libraries are not handled
 
 ## For AI agents
 
-`--json` prints one object `{ schemaVersion: 9, outDir, reportHtml,
+`--json` prints one object `{ schemaVersion: 10, outDir, reportHtml, git?:{commit,branch?,dirty,url?},
 runs:[{ name, baselineType, viewport, mismatchPixels?, mismatchPercent?, heightDelta?,
 target, targetUrl, fullPage?, baseline?, diff?, video?, bootstrap?,
 mode, shots:[], steps:[{index,action,selector?,check,status,error?}],
@@ -308,7 +308,7 @@ CLI form: `--step "action=assert;selector=[role=dialog];state=visible"`.
 
 ### Per-step pass/fail results
 
-Each step reports a result. `summary.json` and `--json` are **schemaVersion 9**
+Each step reports a result. `summary.json` and `--json` are **schemaVersion 10**
 and include `mode`, `shots[]`, `steps[]`, and `stepDiffs[]` on each run entry.
 The `steps[]` shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
 

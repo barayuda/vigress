@@ -9,6 +9,7 @@ export function buildJsonPayload(summary: Summary): object {
     outDir: summary.outDir,
     reportHtml: abs(summary.reportHtml),
     summaryJson: abs(summary.summaryJson),
+    git: summary.git,
     runs: summary.runs.map((r) => ({
       name: r.name,
       baselineType: r.baselineType,

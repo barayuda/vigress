@@ -1,6 +1,7 @@
 import { dirname, normalize, join, isAbsolute } from "node:path";
 import type { Manifest } from "./baselines";
-import type { RunResult, Summary, StepDiffVerdict, RegionVerdict } from "./types";
+import type { RunResult, Summary, StepDiffVerdict, RegionVerdict, GitInfo } from "./types";
+import { sanitizeGitInfo } from "./gitinfo";
 
 // Pure view-model + guard logic for the dashboard. The server (server.ts)
 // does the I/O (scanning out/, markers, deletes) and feeds plain data in;
@@ -26,6 +27,7 @@ export interface RunIndexEntry {
   worstMismatch: number;
   issues: number; // failed check steps + missing stepDiffs + style mismatches
   thumbnail?: string; // outDir-relative artifact path (worst entry's diff, else its target)
+  git?: GitInfo; // commit/branch the run started from, sanitized for display
 }
 
 // A run dir is precious when any manifest entry's artifacts live inside it.
@@ -132,6 +134,7 @@ export function buildRunIndex(dirs: RunDirInfo[], refs: Map<string, string[]>): 
       worstMismatch: worst,
       issues,
       thumbnail: worstRun ? worstRun.diff ?? worstRun.target : undefined,
+      git: sanitizeGitInfo(d.summary?.git),
     };
   });
   return index.sort((a, b) => b.mtimeMs - a.mtimeMs);

@@ -122,6 +122,14 @@ describe("buildJsonPayload fullPage", () => {
   });
 });
 
+describe("buildJsonPayload git", () => {
+  it("passes the run's git info through, and omits it when absent", () => {
+    const g = { commit: "0123456789abcdef0123456789abcdef01234567", branch: "main", dirty: false };
+    expect((buildJsonPayload({ ...summary, git: g }) as any).git).toEqual(g);
+    expect((buildJsonPayload(summary) as any).git).toBeUndefined();
+  });
+});
+
 describe("buildJsonPayload heightDelta", () => {
   it("passes heightDelta through", () => {
     const p = buildJsonPayload({ ...summary, runs: [{ ...summary.runs[0], heightDelta: -42 }] }) as any;
