@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative, basename } from "node:path";
-import { buildRunIndex, buildRunDetail, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { buildRunIndex, buildRunDetail, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, type Manifest } from "./baselines";
 import type { Summary } from "./types";
@@ -152,6 +152,11 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
 
       if (req.method === "GET" && url.pathname === "/api/runs") {
         return json(filterRuns(currentIndex(o), parseRunFilter(url.searchParams)));
+      }
+
+      // Mismatch trend per comparison name, from the existing summary.json files.
+      if (req.method === "GET" && url.pathname === "/api/trends") {
+        return json(buildTrends(scanRunDirs(o)));
       }
 
       // Saved configs the page may run: *.fullcheck.json files in the repo root, nothing else.

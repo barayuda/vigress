@@ -27,6 +27,11 @@ export function buildDashboardHtml(): string {
   .b-unreadable{background:#fef3c7;color:#a16207}
   .b-issues{background:#fee2e2;color:#b42318}
   h2{margin:24px 24px 0;font-size:15px}
+  table.tr{border-collapse:collapse;background:#fff;border:1px solid #dcdfe4;border-radius:6px;margin:8px 24px 0;width:calc(100% - 48px);font-size:13px}
+  table.tr th,table.tr td{text-align:left;padding:6px 10px;border-bottom:1px solid #ebf0f1;vertical-align:middle}
+  table.tr svg{display:block}
+  table.tr .up{color:#b42318}
+  table.tr .down{color:#067647}
   table.bl{border-collapse:collapse;background:#fff;border:1px solid #dcdfe4;border-radius:6px;margin:8px 24px 24px;width:calc(100% - 48px);font-size:13px}
   table.bl th,table.bl td{text-align:left;padding:6px 10px;border-bottom:1px solid #ebf0f1}
   table.bl .bad{color:#b42318}
@@ -83,6 +88,8 @@ export function buildDashboardHtml(): string {
   <label style="margin-left:auto"><input type="checkbox" id="auto"> Auto-refresh</label>
 </div>
 <div id="runs"></div>
+<h2>Trends</h2>
+<div id="trends"></div>
 <h2>Baselines</h2>
 <div id="baselines"></div>
 <script>
@@ -119,6 +126,7 @@ async function load(force = true) {
     render();
   }
   await loadBaselines();
+  await loadTrends();
 }
 
 function img(src, alt) { const i = document.createElement("img"); i.src = src; i.alt = alt; i.loading = "lazy"; return i; }
@@ -300,6 +308,66 @@ function render() {
     root.appendChild(row);
     if (panel) root.appendChild(panel);
   }
+}
+
+// Mismatch % over time as a tiny line; the y scale is per name (0 .. its own max, at least 1%).
+function spark(points) {
+  const NS = "http://www.w3.org/2000/svg", W = 160, H = 30;
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  svg.setAttribute("width", String(W));
+  svg.setAttribute("height", String(H));
+  const max = Math.max(1, ...points.map((p) => p.mismatchPercent));
+  const x = (i) => points.length > 1 ? 3 + (i * (W - 6)) / (points.length - 1) : W / 2; // 3px margin so the last dot is not clipped
+  const y = (p) => H - 2 - (p.mismatchPercent / max) * (H - 4);
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", points.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p).toFixed(1)).join(" "));
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "#1a56db");
+  path.setAttribute("stroke-width", "1.5");
+  svg.appendChild(path);
+  const last = points[points.length - 1];
+  const dot = document.createElementNS(NS, "circle");
+  dot.setAttribute("cx", x(points.length - 1).toFixed(1));
+  dot.setAttribute("cy", y(last).toFixed(1));
+  dot.setAttribute("r", "2.5");
+  dot.setAttribute("fill", "#1a56db");
+  svg.appendChild(dot);
+  const title = document.createElementNS(NS, "title");
+  title.textContent = points.map((p) => new Date(p.mtimeMs).toLocaleString() + ": " + p.mismatchPercent + "%").join("\\n");
+  svg.appendChild(title);
+  return svg;
+}
+
+async function loadTrends() {
+  const trends = await (await fetch("/api/trends")).json();
+  const root = document.getElementById("trends");
+  root.replaceChildren();
+  const names = Object.keys(trends).sort();
+  if (!names.length) { root.appendChild(el("div", "meta", "No comparisons yet.")); return; }
+  const table = el("table", "tr");
+  const head = el("tr");
+  for (const h of ["name", "runs", "latest", "change", "trend"]) head.appendChild(el("th", null, h));
+  table.appendChild(head);
+  for (const n of names) {
+    const pts = trends[n];
+    const last = pts[pts.length - 1];
+    const tr = el("tr");
+    tr.appendChild(el("td", "name", n));
+    tr.appendChild(el("td", null, String(pts.length)));
+    tr.appendChild(el("td", null, last.mismatchPercent + "%" + (last.heightDelta ? " · height " + (last.heightDelta > 0 ? "+" : "") + last.heightDelta + "px" : "")));
+    if (pts.length > 1) {
+      const delta = Math.round((last.mismatchPercent - pts[pts.length - 2].mismatchPercent) * 100) / 100;
+      tr.appendChild(el("td", delta > 0 ? "up" : delta < 0 ? "down" : null, delta > 0 ? "▲ +" + delta + "%" : delta < 0 ? "▼ " + delta + "%" : "no change"));
+    } else {
+      tr.appendChild(el("td", null, "—"));
+    }
+    const cell = el("td");
+    cell.appendChild(spark(pts));
+    tr.appendChild(cell);
+    table.appendChild(tr);
+  }
+  root.appendChild(table);
 }
 
 async function loadBaselines() {
