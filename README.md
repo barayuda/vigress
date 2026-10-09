@@ -913,7 +913,7 @@ Per comparison, the CLI runs this pipeline:
 
 ```
 parse args/env → resolve baseline: refs from the manifest (guards fail fast, no browser)
-→ launch Chrome → new context (viewport + storageState [+ recordVideo])
+→ launch Chrome/Edge (`VIGRESS_BROWSER`) → new context (viewport + storageState [+ recordVideo])
   → capture target URL
   → resolve baseline (capture URL | copy/download image | fetch Figma | approved manifest image)
   → pixelmatch diff (crop to common size, paint masks, per-region sub-diffs)
@@ -924,9 +924,13 @@ parse args/env → resolve baseline: refs from the manifest (guards fail fast, n
 → (with --json) print payload → exit code (gates: --max-mismatch / --max-height-delta / --require-steps / --require-style)
 ```
 
-Pure logic (diff, config parsing, baseline-type detection, Figma-ref parsing,
-region/box math, the baselines manifest, the dashboard view-model, HTML/JSON
-building) is separated from the browser and server I/O so it's unit-testable
+`compare`, `history` / `rollback` / `prune`, `approve` and `before` / `after` are built on
+the same pieces (`before` / `after` are just a normal run with options filled in from the
+baseline); `compare` reads two finished runs and launches no browser.
+
+Pure logic (diff, config and argument parsing, baseline-type detection, Figma-ref parsing,
+region/box math, the baselines manifest and its history, the dashboard view-model and run
+jobs, git info, HTML/JSON building) is separated from the browser and server I/O so it's unit-testable
 without a browser.
 
 ---
@@ -937,9 +941,10 @@ without a browser.
 vigress/
 ├── src/
 │   ├── cli.ts            # entrypoint: parse args, dispatch subcommands, orchestrate
+│   ├── args.ts           # every CLI option; bad command lines become a message + exit 2
 │   ├── config.ts         # types, viewport/clip parse, baseline detect, run/batch builder
 │   ├── auth.ts           # storageState load, login / login --check, expired-session detection
-│   ├── browser.ts        # launch Chrome (channel:"chrome")
+│   ├── browser.ts        # launch the system browser (VIGRESS_BROWSER: chrome / msedge / …)
 │   ├── capture.ts        # navigate + settle + screenshot
 │   ├── diff.ts           # pixelmatch (crop-to-common), per-region sub-diffs, step diffs
 │   ├── regions.ts        # selector→box resolution, mask painting, region scoring
@@ -948,7 +953,10 @@ vigress/
 │   ├── discover.ts       # read-only DOM crawl → generated fullcheck config
 │   ├── compare.ts        # pure plan for comparing two existing runs (which captures to diff)
 │   ├── compareRuns.ts    # reads the two runs' PNGs and diffs them (shared by `compare` and the dashboard)
-│   ├── baselines.ts      # baselines/manifest.json: parse/build/upsert/resolve, verdict matrix
+│   ├── baselines.ts      # baselines/manifest.json: parse/build/upsert, history, rollback, prune, verdict matrix
+│   ├── beforeAfter.ts    # `before` / `after`: which options to add to a normal run (pure)
+│   ├── gitinfo.ts        # commit/branch recorded in summary.json; GitHub commit URL (pure)
+│   ├── jobs.ts           # dashboard "run a saved config / re-check a baseline": allowed names, args, job state (pure)
 │   ├── dashboard.ts      # dashboard view-model: run index, baseline index, locks, cleanup selection, path guard
 │   ├── dashboardHtml.ts  # the dashboard page (static, self-contained)
 │   ├── server.ts         # Bun.serve wiring for `vigress dashboard` (127.0.0.1 only)
@@ -958,6 +966,7 @@ vigress/
 │   ├── report.ts         # writes summary.json + report.html
 │   └── types.ts          # RunResult / Summary / SCHEMA_VERSION
 ├── skills/vigress/       # AI skill + playbook (symlinked into ~/.claude/skills)
+├── docs/                 # dashboard roadmap + security model, project-level VIGRESS.md template
 ├── baselines/            # manifest.json — approved baselines (git-tracked; created by `approve`)
 ├── .env.example
 └── out/                  # artifacts (git-ignored)
@@ -971,11 +980,14 @@ vigress/
 bun test
 ```
 
-Unit tests cover the pure logic only (diff + step diffs, config, sources
-parsing, baselines manifest, region/style math, dashboard view-model and page,
-HTML report, JSON payload) — no browser, no network. The browser/capture/video
-pipeline is verified by running a real comparison; the dashboard server is
-verified live with curl (see the endpoint guards in [Dashboard](#dashboard)).
+Unit tests cover the pure logic only (diff + step diffs, config and argument parsing,
+sources parsing, baselines manifest + history, region/style math, compare, jobs, git
+info, dashboard view-model and page, HTML report, JSON payload) — no browser, no
+network. The dashboard page script is checked to *parse* (a stray escape in the template
+literal blanks the whole page and string checks cannot see it). There is no automated
+browser suite: the browser/capture/video pipeline is verified by running a real
+comparison, and the dashboard server and page by using them (curl for the endpoint guards
+in [Dashboard](#dashboard), a headless browser for the page).
 
 ---
 
@@ -987,7 +999,8 @@ verified live with curl (see the endpoint guards in [Dashboard](#dashboard)).
 - **Figma mode is the least battle-tested path** — verify it with a real
   `FIGMA_TOKEN` on a known frame before relying on it (the API's node-id
   handling can differ).
-- **In URL-baseline mode with `--video`,** the recorded video covers both the
-  target and the reference captures (they share one browser context).
+- **In URL-baseline mode with video on (the default),** two `.webm` files are written, one
+  per captured page; the report and the JSON reference only the target's. The other one
+  (the baseline page's) is an unused leftover in `video/`; `--no-video` avoids both.
 - **The mismatch % is noisy** by design across environments — see
   [Interpreting the mismatch %](#interpreting-the-mismatch-).

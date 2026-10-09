@@ -19,7 +19,7 @@ How agents run `vigress` visual comparisons in this project. Reference it from t
 - Keep page configs in this repo as `<page>.fullcheck.json` (generate with `vigress discover <page> --target <url> --against <ref>`, then review the output).
 - `vigress login` is interactive: ask the human to run `! vigress login --url <app> --state auth.state.json`. Agents may run `login --check` only. Public pages need no `--state`.
 - Never read, print or commit `*.state.json` (live credentials).
-- Never delete a `vigress-reports/<timestamp>/` dir that `baselines/manifest.json` references; it breaks the baseline until re-approved. Use `vigress dashboard --out vigress-reports` to clean up safely (it locks those dirs).
+- Never delete a `vigress-reports/<timestamp>/` dir that `baselines/manifest.json` references (the current baseline **and** its kept earlier versions); it breaks the baseline until re-approved. Use `vigress dashboard --out vigress-reports` to clean up safely (it locks those dirs).
 - Never leave `--update-baseline` on in CI: it approves a run even when a gate fails.
 
 ## Progress workflow (before vs after)
@@ -33,7 +33,17 @@ vigress --config <page>.fullcheck.json --json --max-mismatch 2 --require-steps
 ```
 
 For step 2, set `"against": "baseline:<name>"` in the config entry. The manifest key is the entry's own `name`.
-Re-bless an accepted change with `vigress approve <name>` and commit `baselines/manifest.json`.
+Re-bless an accepted change with `vigress approve <name>` and commit `baselines/manifest.json`. The replaced version is kept: `vigress history <name>` lists it, `vigress rollback <name>` restores it (ask the human first), `vigress prune <name>` forgets old ones.
+
+### Quick form for a single page
+
+```bash
+vigress before <name> --target <url>   # capture the starting point and bless it
+# ... make the change ...
+vigress after <name> --json            # re-check (target/viewport/--full-page default from the baseline)
+```
+
+Already ran a page before and after a change without a baseline? `vigress compare <before-run> <after-run> --name <name> --json` diffs the two existing runs.
 
 ## Reporting prompt
 

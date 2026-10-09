@@ -54,8 +54,8 @@ proxy is the only path in. Update that bullet when Stage 3 ships.
 |---|--------|-------|
 | 2.1 | ✅ Job runner | One-at-a-time child process of the CLI; status endpoint. |
 | 2.2 | ✅ Start from a saved config or baseline | Saved configs and `baseline:<name>` re-checks (manifest `sourceUrl`, approved viewport and capture mode). |
-| 2.3 | ◐ Live status | Polling every 2 s with the last output lines on failure and the finished run in the list; live streaming (server-sent events) still to do. |
-| 2.4 | `init-config` / `discover` launcher | Same allowed-target rule. |
+| 2.3 | ◐ Live status | Polling every 2 s with the last output lines on failure and the finished run in the list. Live streaming (server-sent events) was **not built**: it is polish, not a safety or correctness matter. |
+| 2.4 | ✖ `init-config` / `discover` launcher | **Deliberately not built.** Both take free-text URLs (and `discover` crawls a live page), which breaks the "saved configs and approved baselines only" rule. Use the CLI; revisit only with an allowed-targets design. |
 
 ## Stage 3 — Share
 
