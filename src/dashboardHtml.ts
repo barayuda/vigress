@@ -80,6 +80,14 @@ export function buildDashboardHtml(): string {
   <span id="jobstatus"></span>
 </div>
 <pre class="tail" id="jobtail" hidden></pre>
+<div class="runbar">
+  <label>Compare <select id="cmp-a"></select></label>
+  <label>→ <select id="cmp-b"></select></label>
+  <label>name <select id="cmp-name"></select></label>
+  <button id="cmp-go">Compare</button>
+  <span id="cmp-status"></span>
+</div>
+<div id="cmpout" class="detail" hidden></div>
 <div class="filters">
   <input type="search" id="q" placeholder="Filter by run or name…">
   <label><input type="checkbox" id="f-issues"> has issues</label>
@@ -127,6 +135,7 @@ async function load(force = true) {
   }
   await loadBaselines();
   await loadTrends();
+  await fillCompare();
 }
 
 function img(src, alt) { const i = document.createElement("img"); i.src = src; i.alt = alt; i.loading = "lazy"; return i; }
@@ -502,6 +511,77 @@ document.getElementById("run").onclick = async () => {
   if (!res.ok) { alert("Run refused: " + body.error); return; }
   showJob(body);
   startPolling();
+};
+
+// --- compare two existing runs (before -> after); computed on the fly, nothing is saved ---
+let cmpRuns = [];
+const cmpEl = (id) => document.getElementById(id);
+
+function cmpNames() {
+  const a = cmpRuns.find((r) => r.dirName === cmpEl("cmp-a").value);
+  const b = cmpRuns.find((r) => r.dirName === cmpEl("cmp-b").value);
+  const inB = new Set(b ? b.entries.map((e) => e.name) : []);
+  return a ? [...new Set(a.entries.map((e) => e.name))].filter((n) => inB.has(n)).sort() : [];
+}
+
+function fillCmpNames() {
+  const sel = cmpEl("cmp-name");
+  const keep = sel.value;
+  const names = cmpNames();
+  sel.replaceChildren();
+  for (const n of names) { const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); }
+  if (names.includes(keep)) sel.value = keep;
+  cmpEl("cmp-go").disabled = names.length === 0;
+  cmpEl("cmp-status").textContent = names.length ? "" : "pick two runs that share a comparison name";
+}
+
+let lastCmpJson = "";
+async function fillCompare() {
+  const text = await (await fetch("/api/runs")).text();
+  if (text === lastCmpJson) return; // an auto-refresh must not rebuild (and close) an open dropdown
+  lastCmpJson = text;
+  cmpRuns = JSON.parse(text).filter((r) => !r.unreadable && r.entries.length);
+  const keepA = cmpEl("cmp-a").value, keepB = cmpEl("cmp-b").value;
+  for (const id of ["cmp-a", "cmp-b"]) {
+    const sel = cmpEl(id);
+    sel.replaceChildren();
+    for (const r of cmpRuns) {
+      const o = document.createElement("option");
+      o.value = r.dirName;
+      o.textContent = r.dirName + " (" + r.entries.map((e) => e.name).join(", ") + ")";
+      sel.appendChild(o);
+    }
+  }
+  // newest-first list: default is "the run before the newest" -> "the newest"
+  const has = (v) => cmpRuns.some((r) => r.dirName === v);
+  cmpEl("cmp-a").value = has(keepA) ? keepA : (cmpRuns[1] || cmpRuns[0] || { dirName: "" }).dirName;
+  cmpEl("cmp-b").value = has(keepB) ? keepB : (cmpRuns[0] || { dirName: "" }).dirName;
+  fillCmpNames();
+}
+
+cmpEl("cmp-a").onchange = fillCmpNames;
+cmpEl("cmp-b").onchange = fillCmpNames;
+cmpEl("cmp-go").onclick = async () => {
+  const out = cmpEl("cmpout");
+  const q = new URLSearchParams({ a: cmpEl("cmp-a").value, b: cmpEl("cmp-b").value, name: cmpEl("cmp-name").value });
+  cmpEl("cmp-status").textContent = "comparing…";
+  const res = await fetch("/api/compare?" + q.toString());
+  const body = await res.json();
+  cmpEl("cmp-status").textContent = "";
+  out.replaceChildren();
+  out.hidden = false;
+  if (!res.ok) { out.appendChild(el("div", "bad", "Compare failed: " + body.error)); return; }
+  const sign = (n) => (n > 0 ? "+" : "") + n;
+  out.appendChild(el("h3", null, body.name + ": " + body.before + " → " + body.after + " — " + body.mismatchPercent + "% differ"));
+  if (body.heightDelta) out.appendChild(el("div", "bad", "height " + sign(body.heightDelta) + "px (after minus before) — that part was not compared"));
+  if (body.widthDelta) out.appendChild(el("div", "bad", "width " + sign(body.widthDelta) + "px (after minus before)"));
+  out.appendChild(renderViewer(body.images));
+  if (body.stepDiffs.length) {
+    out.appendChild(el("div", null, "step screenshots"));
+    const ul = el("ul");
+    for (const s of body.stepDiffs) ul.appendChild(el("li", null, s.name + ": " + s.verdict + " (" + s.mismatchPercent + "%)"));
+    out.appendChild(ul);
+  }
 };
 
 let typing = null;

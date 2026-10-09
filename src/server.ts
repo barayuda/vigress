@@ -1,9 +1,11 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative, basename } from "node:path";
-import { buildRunIndex, buildRunDetail, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { fileUrl, buildRunIndex, buildRunDetail, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, type Manifest } from "./baselines";
 import type { Summary } from "./types";
+import { compareRuns } from "./compareRuns";
+import { commonRunNames } from "./compare";
 import { isRunnableConfigName, listRunnableConfigs, canStart, startJob, finishJob, appendTail, configRunArgs, baselineRunArgs, JOB_TIMEOUT_MS, type Job } from "./jobs";
 
 // Thin I/O layer: scans out/, reads markers/manifest, serves artifacts, and
@@ -152,6 +154,37 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
 
       if (req.method === "GET" && url.pathname === "/api/runs") {
         return json(filterRuns(currentIndex(o), parseRunFilter(url.searchParams)));
+      }
+
+      // GET /api/compare?a=<dir>&b=<dir>[&name=<run>] — diff the same-named capture of two
+      // existing runs (a = before, b = after). Computed on the fly: nothing is written, so it
+      // never shows up as a run.
+      if (req.method === "GET" && url.pathname === "/api/compare") {
+        const aDir = dirSegment(url.searchParams.get("a") ?? "");
+        const bDir = dirSegment(url.searchParams.get("b") ?? "");
+        if (!aDir || !bDir) return json({ error: "a and b must be run dir names" }, 400);
+        const aAbs = join(o.outDirAbs, aDir);
+        const bAbs = join(o.outDirAbs, bDir);
+        if (!existsSync(aAbs) || !existsSync(bAbs)) return json({ error: "run dir not found" }, 404);
+        const aSum = readSummary(aAbs);
+        const bSum = readSummary(bAbs);
+        if (!aSum || !bSum) return json({ error: "both runs need a readable summary.json" }, 404);
+        const common = commonRunNames(aSum, bSum);
+        const name = url.searchParams.get("name") || (common.length === 1 ? common[0] : "");
+        if (!name) return json({ error: common.length ? `pick a comparison: ${common.join(", ")}` : "the two runs have no comparison name in common" }, 400);
+        const res = compareRuns({ a: { dir: aAbs, summary: aSum }, b: { dir: bAbs, summary: bSum }, name });
+        if (!res.ok) return json({ error: res.message }, 400);
+        const { diffPng, aTarget, bTarget, ...rest } = res.result;
+        return json({
+          ...rest,
+          before: aDir,
+          after: bDir,
+          images: {
+            baseline: fileUrl(aDir, aTarget),
+            target: fileUrl(bDir, bTarget),
+            diff: "data:image/png;base64," + diffPng.toString("base64"),
+          },
+        });
       }
 
       // Mismatch trend per comparison name, from the existing summary.json files.

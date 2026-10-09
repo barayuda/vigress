@@ -32,23 +32,43 @@ function crop(src: PNG, w: number, h: number): PNG {
   return dst;
 }
 
-function diffBuffers(a: PNG, b: PNG, outPath: string, threshold: number): DiffResult {
+// The comparison itself: crop both to the common top-left area and run pixelmatch.
+function diffCore(a: PNG, b: PNG, threshold: number): { diff: PNG; width: number; height: number; mismatchPixels: number; totalPixels: number; mismatchPercent: number } {
   const width = Math.min(a.width, b.width);
   const height = Math.min(a.height, b.height);
   const ca = crop(a, width, height);
   const cb = crop(b, width, height);
   const diff = new PNG({ width, height });
   const mismatchPixels = pixelmatch(ca.data, cb.data, diff.data, width, height, { threshold });
-  writeFileSync(outPath, PNG.sync.write(diff));
   const totalPixels = width * height;
-  return {
-    width,
-    height,
-    mismatchPixels,
-    totalPixels,
-    mismatchPercent: Number(((mismatchPixels / totalPixels) * 100).toFixed(2)),
-    diffPath: outPath,
-  };
+  return { diff, width, height, mismatchPixels, totalPixels, mismatchPercent: Number(((mismatchPixels / totalPixels) * 100).toFixed(2)) };
+}
+
+function diffBuffers(a: PNG, b: PNG, outPath: string, threshold: number): DiffResult {
+  const { diff, ...rest } = diffCore(a, b, threshold);
+  writeFileSync(outPath, PNG.sync.write(diff));
+  return { ...rest, diffPath: outPath };
+}
+
+export interface DiffData {
+  width: number; // common area compared
+  height: number;
+  mismatchPixels: number;
+  totalPixels: number;
+  mismatchPercent: number;
+  widthDelta: number; // second minus first, px
+  heightDelta: number;
+  diffPng: Buffer;
+}
+
+// Diff two PNG files held in memory, nothing written to disk (used to compare two
+// existing runs). Deltas are second minus first: with (before, after), positive
+// means the "after" capture is bigger.
+export function diffPngData(aData: Buffer, bData: Buffer, threshold = 0.1): DiffData {
+  const a = PNG.sync.read(aData);
+  const b = PNG.sync.read(bData);
+  const { diff, ...rest } = diffCore(a, b, threshold);
+  return { ...rest, widthDelta: b.width - a.width, heightDelta: b.height - a.height, diffPng: PNG.sync.write(diff) };
 }
 
 export function diffPngs(

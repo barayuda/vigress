@@ -167,6 +167,7 @@ bun run src/cli.ts init-config <page> --target <url> --against <ref> [--viewport
 bun run src/cli.ts discover <page> --target <url> --against <url> [--viewport WxH] [--state f] [--max-steps n]
 bun run src/cli.ts approve <name> [--run <dir>]
 bun run src/cli.ts approve --all [--run <dir>]
+bun run src/cli.ts compare <before-run> <after-run> [--name <run>] [--diff out.png] [--json]
 bun run src/cli.ts dashboard [--port 4600] [--out out]
 bun run src/cli.ts --config <file.json> [options]
 ```
@@ -200,6 +201,7 @@ bun run src/cli.ts --config <file.json> [options]
 | `--update-baseline` | boolean | — | After the run completes, approve all results into `baselines/manifest.json`. If a `baseline:<name>` ref has no manifest entry yet, that run is a bootstrap: diff phase skipped, then approved. Works in both single-run and batch mode (all entries are approved in batch). |
 | `--run` | path | — | (approve only) bless from a specific run directory instead of auto-finding the newest. |
 | `--all` | boolean | — | (approve only) bless every entry in the run, not just the named one. |
+| `--diff` | path | — | (compare only) write the diff image to this PNG. Without it nothing is written. |
 | `--port` | number | `4600` | (dashboard only) port to bind the local server. Invalid value → usage error + exit 2. |
 
 **Subcommands:**
@@ -208,6 +210,7 @@ bun run src/cli.ts --config <file.json> [options]
 - `discover <page>` — crawls the live `--target` DOM (read-only) and writes a run-ready `<page>.fullcheck.json`.
 - `approve <name> [--run <dir>]` — blesses a run's target capture and named step shots into `baselines/manifest.json`. Auto-finds the newest run containing `<name>` unless `--run` is given.
 - `approve --all [--run <dir>]` — blesses every entry in the run (for batch configs).
+- `compare <before-run> <after-run>` — diffs the same-named capture (and step screenshots) of two **existing** runs, no baseline needed; see [Comparing two runs](#comparing-two-existing-runs-before--after).
 - `dashboard [--port 4600] [--out out]` — starts the local artifact-manager dashboard (see [Dashboard](#dashboard)).
 
 **Exit codes:** `0` success · `1` a gate tripped (`--max-mismatch`,
@@ -355,6 +358,21 @@ failure.
 
 ---
 
+## Comparing two existing runs (before / after)
+
+No baseline? If you ran a page before a change and again after it, diff those two runs directly:
+
+```bash
+bun run src/cli.ts compare 2026-10-09_09-48-21 2026-10-09_09-49-01 --name contact --diff diff.png
+```
+
+A run is a path or a folder name under `--out`. With `--name`, both runs must contain that comparison; without it, the two runs must share exactly one. It diffs the **target** capture of the "before" run against the "after" run, plus every step screenshot they have in common (`ok` / `mismatch` / `new` / `missing`, as in baseline step diffs). The output shows the mismatch %, and `heightDelta` / width difference (**after minus before**) — the part of a taller page that was not compared, because the diff only covers the common top-left area.
+
+- Read-only: it writes nothing except the diff PNG you ask for with `--diff`, and the result is not a run (it does not appear in the run list, trends or `approve`).
+- Gates are the usual opt-in ones: `--max-mismatch <pct>` (also applies to step diffs) and `--max-height-delta <px>` exit 1 when exceeded; `--threshold` is pixelmatch's colour tolerance; `--json` prints the result.
+- Both runs should use the same viewport and `--full-page` setting, otherwise the sizes differ and only the common area is compared (`heightDelta` shows it).
+- The dashboard has the same thing: the **Compare** bar picks two runs and a name and shows baseline / target / diff with the side-by-side and slider viewer (`GET /api/compare?a=<dir>&b=<dir>&name=<run>`).
+
 ## Dashboard
 
 The dashboard is a local web UI for browsing, keeping, and cleaning up `out/` run directories.
@@ -374,6 +392,7 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 | `GET` | `/` | Dashboard HTML page. |
 | `GET` | `/api/runs` | JSON array of run-dir entries (sorted newest-first). Optional filters, combined with AND: `q=<text>` (run dir or entry name, case-insensitive), `issues=1`, `locked=1`, `min=<pct>` (worst mismatch at least this). Unknown values are ignored, so a bad filter never hides runs. |
 | `GET` | `/api/runs/<dir>/detail` | The reviewable parts of one run's `summary.json`, one entry per comparison: `name`, `images` (ready `/files/…` URLs: `target`, and `baseline`/`diff`/`video` when present), `mismatchPercent`, `heightDelta`, `bootstrap`, `issues`, `failedSteps[]`, `regions[]` (with `styleMismatches`) and `stepDiffs[]`. `404` if the dir is missing or has no readable summary. The page shows it under **Details**, with a side-by-side / slider comparison of baseline, target and diff. |
+| `GET` | `/api/compare` | `?a=<run dir>&b=<run dir>[&name=<run>]` — diff the same-named capture of two existing runs (a = before, b = after) in memory: `mismatchPercent`, `heightDelta`/`widthDelta` (after minus before), `stepDiffs`, and `images` (`baseline`/`target` file URLs plus the diff as a `data:` URL). Nothing is written and it is not a run. `400` for bad names or a path that escapes its run dir; `404` for a missing/unreadable run. |
 | `GET` | `/api/trends` | `{ "<name>": [{ dirName, mtimeMs, mismatchPercent, heightDelta?, baselineType }] }` — mismatch % per comparison name over time (oldest first, at most 50 per name), from the existing `summary.json` files. Bootstrap runs and runs with nothing diffed are not points. |
 | `GET` | `/api/configs` | `{ configs, baselines }` — the `*.fullcheck.json` files in the repo root (plain file names only) and the approved baseline names. These are the only things the page can run. |
 | `GET` | `/api/jobs` | `{ job, runDir }` — the latest run started from the page (`state`: `running`/`done`/`failed`, `exitCode`, `error`, last output lines) and, once it produced one, the run dir name under `out/`. |
@@ -886,6 +905,8 @@ vigress/
 │   ├── style.ts          # computed-style probing + property-by-property diffs
 │   ├── steps.ts          # interaction steps + auto-explore
 │   ├── discover.ts       # read-only DOM crawl → generated fullcheck config
+│   ├── compare.ts        # pure plan for comparing two existing runs (which captures to diff)
+│   ├── compareRuns.ts    # reads the two runs' PNGs and diffs them (shared by `compare` and the dashboard)
 │   ├── baselines.ts      # baselines/manifest.json: parse/build/upsert/resolve, verdict matrix
 │   ├── dashboard.ts      # dashboard view-model: run index, baseline index, locks, cleanup selection, path guard
 │   ├── dashboardHtml.ts  # the dashboard page (static, self-contained)
