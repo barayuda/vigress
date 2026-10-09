@@ -50,7 +50,8 @@ repo; uses system Chrome.
 | Bless a good run as the baseline | `approve <name>` / `approve --all` |
 | Guard against regressions after that | `--against baseline:<name>` |
 | See, restore or forget earlier approved versions | `history <name>` / `rollback <name> [--to N]` / `prune <name> [--keep N]` |
-| Before/after a change, no baseline made | `compare <before-run> <after-run> [--name <run>] [--diff out.png] [--json]` (see "Compare two runs") |
+| Before/after a change you are about to make | `before <name> --target <url>`, change, then `after <name>` (see "Before / after") |
+| Before/after of runs you already have, no baseline | `compare <before-run> <after-run> [--name <run>] [--diff out.png] [--json]` (see "Compare two runs") |
 | Browse, keep, delete old runs | `dashboard` (human only — blocks) |
 
 ## Quick start
@@ -439,6 +440,16 @@ order (not necessarily the order a human would test filters in), and the
 nth-of-type fallback selector is brittle if the DOM shifts. Always review the
 generated config before trusting a run's `--require-steps`/`--require-style`
 gate on it.
+
+## Before / after (two commands)
+
+```bash
+bun run src/cli.ts before <name> --target <url>   # capture the starting point and bless it as baseline <name>
+# ... the change is made ...
+bun run src/cli.ts after <name> --json            # re-check against it; target/viewport/--full-page default from the baseline
+```
+
+`before` is a normal run with `--against baseline:<name> --update-baseline` (re-blessing keeps the replaced version in history); `after` is `--against baseline:<name>` and **never blesses**. Both accept the usual run flags and gates (`--max-mismatch`, `--state`, ...) but set `--against`/`--name` themselves. Ask before running `before` on an existing name: it changes what future checks compare against (undo with `rollback`). For runs that already exist and no baseline, use `compare` below.
 
 ## Compare two runs (before / after, no baseline)
 

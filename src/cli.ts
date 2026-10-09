@@ -20,6 +20,7 @@ import { buildGitInfo } from "./gitinfo";
 import { SCHEMA_VERSION, type GitInfo, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type StepDiff, type Summary } from "./types";
 import { startDashboard } from "./server";
 import { compareRuns } from "./compareRuns";
+import { prepareBeforeAfter } from "./beforeAfter";
 import { referencedRunDirs } from "./dashboard";
 import { commonRunNames } from "./compare";
 
@@ -435,6 +436,18 @@ async function main(): Promise<number> {
     await new Promise(() => {}); // serve until killed
   }
 
+  // before / after: a normal single run with options filled in from the baseline (see beforeAfter.ts).
+  const beforeAfter = positionals[0] === "before" || positionals[0] === "after" ? positionals[0] : undefined;
+  if (beforeAfter) {
+    const manifestPath = resolve(MANIFEST_PATH);
+    const plan = prepareBeforeAfter(beforeAfter, positionals[1], values as Record<string, unknown>, existsSync(manifestPath) ? parseManifest(readFileSync(manifestPath, "utf8")) : null);
+    if (!plan.ok) {
+      process.stderr.write(plan.message + "\n");
+      return plan.code;
+    }
+    Object.assign(values, plan.patch);
+  }
+
   const { runs, opts } = buildRunConfig(values as Record<string, unknown>, process.env);
   if (runs.length === 0) {
     process.stderr.write(
@@ -707,6 +720,7 @@ async function main(): Promise<number> {
     process.stdout.write(JSON.stringify(buildJsonPayload(summary)) + "\n");
   } else {
     log(opts.quiet, `report: ${join(outDir, "report.html")}`);
+    if (beforeAfter === "before") log(opts.quiet, `starting point saved as baseline '${positionals[1]}' — make your change, then run: vigress after ${positionals[1]}`);
   }
 
   if (opts.maxMismatch !== undefined) {
