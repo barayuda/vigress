@@ -49,7 +49,7 @@ repo; uses system Chrome.
 | Is the saved session still valid? | `login --url <u> --state <f> --check --json` |
 | Bless a good run as the baseline | `approve <name>` / `approve --all` |
 | Guard against regressions after that | `--against baseline:<name>` |
-| See or restore an earlier approved version | `history <name>` / `rollback <name> [--to N]` |
+| See, restore or forget earlier approved versions | `history <name>` / `rollback <name> [--to N]` / `prune <name> [--keep N]` |
 | Before/after a change, no baseline made | `compare <before-run> <after-run> [--name <run>] [--diff out.png] [--json]` (see "Compare two runs") |
 | Browse, keep, delete old runs | `dashboard` (human only — blocks) |
 
@@ -510,7 +510,7 @@ bun run src/cli.ts history <name>             # current + previous versions, wit
 bun run src/cli.ts rollback <name> [--to N]   # restore one (default 0 = the previous); the replaced version is kept
 ```
 
-Rollback refuses when the target's files are gone from `out/`. Each kept version's run dir stays manifest-locked; do not delete them by hand. Ask before rolling back: it changes what every future `baseline:` run compares against. To see what changed between versions, use `compare <old-run> <current-run>`.
+`prune <name> [--keep N]` (default 3) forgets older versions without deleting files, which unlocks their run dirs for cleanup. Rollback refuses when the target's files are gone from `out/`. Each kept version's run dir stays manifest-locked; do not delete them by hand. Ask before rolling back: it changes what every future `baseline:` run compares against. To see what changed between versions, use `compare <old-run> <current-run>`.
 
 ### Parity → bless → regression
 
