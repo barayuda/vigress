@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { PNG } from "pngjs";
-import { diffPngs, diffShots, diffWithRegions } from "./diff";
+import { diffPngs, diffPngData, diffShots, diffWithRegions } from "./diff";
 
 let dir: string;
 
@@ -167,5 +167,22 @@ describe("diffShots", () => {
     });
     expect(diffs[0].verdict).toBe("mismatch");
     expect(diffs[0].mismatchPercent).toBeGreaterThan(5);
+  });
+});
+
+describe("diffPngData", () => {
+  const data = (w: number, h: number, c: number) => PNG.sync.write(solid(w, h, c, c, c));
+  it("diffs two PNG buffers in memory: common area, size deltas, a diff PNG", () => {
+    const r = diffPngData(data(20, 20, 255), data(20, 30, 255));
+    expect(r.mismatchPixels).toBe(0);
+    expect(r.width).toBe(20);
+    expect(r.height).toBe(20);
+    expect(r.heightDelta).toBe(10);
+    expect(r.widthDelta).toBe(0);
+    expect(r.diffPng.subarray(1, 4).toString()).toBe("PNG");
+  });
+  it("counts differing pixels over the common area", () => {
+    const r = diffPngData(data(10, 10, 255), data(10, 10, 0));
+    expect(r.mismatchPercent).toBe(100);
   });
 });

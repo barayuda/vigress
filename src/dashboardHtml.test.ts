@@ -43,6 +43,11 @@ describe("buildDashboardHtml", () => {
     expect(html).toContain('id="trends"');
     expect(html).toContain('"/api/trends"');
   });
+  it("has a compare bar wired to the compare API", () => {
+    expect(html).toContain('id="cmp-a"');
+    expect(html).toContain('id="cmp-b"');
+    expect(html).toContain("/api/compare?");
+  });
   it("ships a page script that actually parses", () => {
     // A string-only check cannot see a stray raw newline inside a JS string (a template-literal
     // escape slip), which makes the browser reject the whole script and blanks the page.

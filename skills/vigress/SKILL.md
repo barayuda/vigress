@@ -49,6 +49,7 @@ repo; uses system Chrome.
 | Is the saved session still valid? | `login --url <u> --state <f> --check --json` |
 | Bless a good run as the baseline | `approve <name>` / `approve --all` |
 | Guard against regressions after that | `--against baseline:<name>` |
+| Before/after a change, no baseline made | `compare <before-run> <after-run> [--name <run>] [--diff out.png] [--json]` (see "Compare two runs") |
 | Browse, keep, delete old runs | `dashboard` (human only — blocks) |
 
 ## Quick start
@@ -437,6 +438,16 @@ order (not necessarily the order a human would test filters in), and the
 nth-of-type fallback selector is brittle if the DOM shifts. Always review the
 generated config before trusting a run's `--require-steps`/`--require-style`
 gate on it.
+
+## Compare two runs (before / after, no baseline)
+
+If you captured a page before a change and again after it but never approved a baseline, diff the two existing runs:
+
+```bash
+bun run src/cli.ts compare <before-run> <after-run> --name <run> --json
+```
+
+A run is a folder path or a folder name under `--out` (take them from the earlier `--json` payloads' `outDir`). `--name` is needed when the runs share more than one comparison. It diffs the **target** capture of the before run against the after run plus the step screenshots they share, and reports `mismatchPercent`, `heightDelta` / `widthDelta` (**after minus before**), and `stepDiffs[]` (`ok`/`mismatch`/`new`/`missing`). It writes nothing unless `--diff <png>` is given, and the result is not a run (not in the list, trends or `approve`). Gates: `--max-mismatch` and `--max-height-delta` (exit 1). Use the same viewport and `--full-page` on both runs — otherwise only the common top area is compared, which `heightDelta` makes visible. For a lasting before/after, prefer a baseline (below): it survives and gates CI.
 
 ## Baseline snapshots (self-regression)
 
