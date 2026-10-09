@@ -348,6 +348,8 @@ bun run src/cli.ts rollback contact         # restore the previous version (inde
 bun run src/cli.ts rollback contact --to 2  # restore an older one
 ```
 
+Several writers can touch the manifest (the CLI commands and the dashboard), so every update reads, changes and writes it under a lock file (`baselines/manifest.json.lock`, created exclusively and removed afterwards, git-ignored) and writes the file atomically (temp file + rename). Two updates at the same moment are applied one after the other instead of the second silently dropping the first.
+
 `prune <name> [--keep N]` forgets all but the newest N previous versions (default 3; `--keep 0` forgets them all). It deletes **no files**: it only stops locking the dropped versions' run dirs and lists the ones no other baseline still uses, so you can delete them (dashboard or by hand) to get the disk back. The current version is never touched. Without pruning, history is capped at 10 versions per baseline anyway.
 
 `rollback` puts the version it replaces into history, so a rollback can itself be rolled back. It refuses when the target version's files are gone from `out/`, since the baseline would then fail at run time. To see what changed between versions: `vigress compare <old-run> <current-run>` (`approvedFrom` in `history` is the run dir).
@@ -902,6 +904,7 @@ bun run src/cli.ts --config comparisons.json --state auth.state.json --json --ma
 | `No session at "…"` / `session has likely expired` | Run `vigress login --url <app> --state <path>` and pass the same `--state`. Verify a saved session anytime with `vigress login --url <app> --state <path> --check`. |
 | Figma: "no image for node" / 403 | Check `FIGMA_TOKEN`, the `figma:FILEKEY/NODEID` ref (node id uses `:`), and that the token can read that file. |
 | Huge mismatch % but pages "look the same" | Expected noise (fonts/shell/offset). Use `--clip` and judge by the diff image, not the number. |
+| `the baselines manifest is locked by another vigress process (pid N)` | Another `approve` / `rollback` / `prune` / `--update-baseline` (or the dashboard) is updating `baselines/manifest.json` right now; it waits up to 10 s, so just retry. If that process is really gone, delete `baselines/manifest.json.lock` (a lock whose process is dead or older than 30 s is taken over automatically, so this is rarely needed). |
 | No `.webm` produced | Video is on by default — check you didn't pass `--no-video` or set `"video": false` on the entry. |
 | Target needs a VPN | Connect the VPN before running. |
 

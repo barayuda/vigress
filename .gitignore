@@ -1,5 +1,8 @@
 node_modules/
 out/
+# transient while a baselines update is in progress (see src/manifestLock.ts)
+baselines/*.lock
+baselines/*.tmp
 .DS_Store
 **/.DS_Store
 .env

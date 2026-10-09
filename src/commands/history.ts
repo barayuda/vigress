@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MANIFEST_PATH, parseManifest, writeManifest, rollbackBaseline, versionArtifacts } from "../baselines";
+import { withManifestLock } from "../manifestLock";
 import type { Ctx } from "./context";
 
 // history / rollback subcommands: earlier approved versions of a baseline. Approving a name
@@ -32,12 +33,16 @@ export async function historyCommand({ values, positionals }: Ctx): Promise<numb
     return 0;
   }
   const to = typeof values.to === "string" ? Number(values.to) : 0;
-  const res = rollbackBaseline(manifest, name, to, exists);
+  // Re-read inside the lock: read, change and write must be one step.
+  const res = withManifestLock(manifestFile, () => {
+    const r = rollbackBaseline(parseManifest(readFileSync(manifestFile, "utf8")), name, to, exists);
+    if (r.ok) writeManifest(manifestFile, r.manifest);
+    return r;
+  });
   if (!res.ok) {
     process.stderr.write(`vigress rollback: ${res.message}\n`);
     return 1;
   }
-  writeManifest(manifestFile, res.manifest);
   process.stdout.write(`rolled '${name}' back to the version approved ${res.restored.approvedAt} from ${res.restored.approvedFrom}\nthe version it replaced is kept: run \`vigress history ${name}\`\n`);
   return 0;
 }

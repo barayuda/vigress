@@ -2,6 +2,7 @@ import { existsSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
 import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, approveRuns, pickNewestRun, type RunDirCandidate } from "../baselines";
 import { loadRunDir, loadRunDirs } from "../runs";
+import { withManifestLock } from "../manifestLock";
 import type { Ctx } from "./context";
 
 // approve subcommand: bless a run's captures as the approved baseline.
@@ -36,18 +37,22 @@ export async function approveCommand({ values, positionals }: Ctx): Promise<numb
     }
   }
   const manifestFile = resolve(MANIFEST_PATH);
-  const manifest = existsSync(manifestFile) ? parseManifest(readFileSync(manifestFile, "utf8")) : emptyManifest();
   const runDirRel = relative(process.cwd(), candidate.dir);
-  const res = approveRuns(
-    manifest, candidate.summary, runDirRel, all ? null : name!,
-    (targetRel) => existsSync(join(candidate.dir, targetRel)), new Date().toISOString(),
-  );
+  // Read, change and write under one lock so a concurrent writer's update is not lost.
+  const res = withManifestLock(manifestFile, () => {
+    const manifest = existsSync(manifestFile) ? parseManifest(readFileSync(manifestFile, "utf8")) : emptyManifest();
+    const r = approveRuns(
+      manifest, candidate.summary, runDirRel, all ? null : name!,
+      (targetRel) => existsSync(join(candidate.dir, targetRel)), new Date().toISOString(),
+    );
+    if (r.ok) writeManifest(manifestFile, r.manifest);
+    return r;
+  });
   if (!res.ok) {
     process.stderr.write(`vigress approve: ${res.message}\n`);
     return 1;
   }
   const toApprove = res.approved;
-  writeManifest(manifestFile, res.manifest);
   writeFileSync(join(candidate.dir, ".approved"), toApprove.map((r) => r.name).join("\n") + "\n");
   if (values.json === true) {
     process.stdout.write(JSON.stringify({

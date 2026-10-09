@@ -16,6 +16,7 @@ import { resolveStyles, styleProps, diffStyleValues, type StyleItem, type StyleV
 import { buildGitInfo } from "../gitinfo";
 import { SCHEMA_VERSION, type GitInfo, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type StepDiff, type Summary } from "../types";
 import { prepareBeforeAfter } from "../beforeAfter";
+import { withManifestLock } from "../manifestLock";
 import type { Ctx } from "./context";
 
 function log(quiet: boolean, msg: string): void {
@@ -320,11 +321,14 @@ export async function runCommand({ values, positionals }: Ctx): Promise<number> 
   writeReport(summary);
 
   if (opts.updateBaseline) {
-    let m = existsSync(manifestFile) ? parseManifest(readFileSync(manifestFile, "utf8")) : emptyManifest();
     const runDirRel = relative(process.cwd(), outDir);
     const approvedAt = new Date().toISOString();
-    for (const r of results) m = upsertBaseline(m, r.name, buildManifestEntry(r, runDirRel, approvedAt));
-    writeManifest(manifestFile, m);
+    // Read, change and write under one lock so a concurrent writer's update is not lost.
+    withManifestLock(manifestFile, () => {
+      let m = existsSync(manifestFile) ? parseManifest(readFileSync(manifestFile, "utf8")) : emptyManifest();
+      for (const r of results) m = upsertBaseline(m, r.name, buildManifestEntry(r, runDirRel, approvedAt));
+      writeManifest(manifestFile, m);
+    });
     writeFileSync(join(outDir, ".approved"), results.map((r) => r.name).join("\n") + "\n");
     log(opts.quiet || opts.json, `baseline updated: ${results.map((r) => r.name).join(", ")}`);
   }

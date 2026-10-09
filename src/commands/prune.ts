@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { MANIFEST_PATH, parseManifest, writeManifest, pruneHistory } from "../baselines";
 import { referencedRunDirs } from "../dashboard";
+import { withManifestLock } from "../manifestLock";
 import type { Ctx } from "./context";
 
 // prune subcommand: forget old baseline versions beyond the newest N (default 3). Deletes no files.
@@ -16,8 +17,12 @@ export async function pruneCommand({ values, positionals }: Ctx): Promise<number
     process.stderr.write(`vigress prune: no baselines manifest at ${MANIFEST_PATH}\n`);
     return 1;
   }
-  const manifest = parseManifest(readFileSync(manifestFile, "utf8"));
-  const res = pruneHistory(manifest, name, typeof values.keep === "string" ? Number(values.keep) : 3);
+  // Read, change and write under one lock so a concurrent writer's update is not lost.
+  const res = withManifestLock(manifestFile, () => {
+    const r = pruneHistory(parseManifest(readFileSync(manifestFile, "utf8")), name, typeof values.keep === "string" ? Number(values.keep) : 3);
+    if (r.ok && r.dropped.length) writeManifest(manifestFile, r.manifest);
+    return r;
+  });
   if (!res.ok) {
     process.stderr.write(`vigress prune: ${res.message}\n`);
     return 1;
@@ -26,7 +31,6 @@ export async function pruneCommand({ values, positionals }: Ctx): Promise<number
     process.stdout.write(`nothing to prune for '${name}'\n`);
     return 0;
   }
-  writeManifest(manifestFile, res.manifest);
   const stillLocked = referencedRunDirs(res.manifest);
   const freed = [...new Set(res.dropped.map((v) => v.approvedFrom))].filter((d) => !stillLocked.has(d));
   process.stdout.write(

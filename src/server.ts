@@ -5,6 +5,7 @@ import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, rollbackBaseline, type Manifest } from "./baselines";
 import type { Summary } from "./types";
 import { compareRuns } from "./compareRuns";
+import { withManifestLock } from "./manifestLock";
 import { commonRunNames } from "./compare";
 import { isRunnableConfigName, listRunnableConfigs, canStart, startJob, finishJob, appendTail, configRunArgs, baselineRunArgs, JOB_TIMEOUT_MS, type Job } from "./jobs";
 
@@ -104,6 +105,18 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
       return existsSync(o.manifestFile) ? parseManifest(readFileSync(o.manifestFile, "utf8")) : emptyManifest();
     } catch (e) {
       return json({ error: `manifest unreadable: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    }
+  }
+
+  // Read, change and write the manifest as one step, under the same lock the CLI uses, so an
+  // update made at the same moment by `vigress approve` (or another request) is not lost. If the
+  // lock cannot be taken in time the caller gets a clean 503 instead of a crash. The wait is
+  // short (2 s, not the CLI's 10 s) because waiting blocks this single-threaded server.
+  function updatingManifest(fn: () => Response): Response {
+    try {
+      return withManifestLock(o.manifestFile, fn, { timeoutMs: 2000 });
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : String(e) }, 503);
     }
   }
 
@@ -332,14 +345,16 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         }
         const which = body.all === true ? null : typeof body.name === "string" && body.name ? body.name : undefined;
         if (which === undefined) return json({ error: 'expected {"name": "<run>"} or {"all": true}' }, 400);
-        const manifest = manifestForWrite();
-        if (manifest instanceof Response) return manifest;
         const runDirRel = relative(o.rootDir, abs);
-        const res = approveRuns(manifest, summary, runDirRel, which, (t) => existsSync(join(abs, t)), new Date().toISOString());
-        if (!res.ok) return json({ error: res.message }, 400);
-        writeManifest(o.manifestFile, res.manifest);
-        writeFileSync(join(abs, ".approved"), res.approved.map((r) => r.name).join("\n") + "\n");
-        return json({ approved: res.approved.map((r) => r.name), from: runDirRel });
+        return updatingManifest(() => {
+          const manifest = manifestForWrite();
+          if (manifest instanceof Response) return manifest;
+          const res = approveRuns(manifest, summary, runDirRel, which, (t) => existsSync(join(abs, t)), new Date().toISOString());
+          if (!res.ok) return json({ error: res.message }, 400);
+          writeManifest(o.manifestFile, res.manifest);
+          writeFileSync(join(abs, ".approved"), res.approved.map((r) => r.name).join("\n") + "\n");
+          return json({ approved: res.approved.map((r) => r.name), from: runDirRel });
+        });
       }
 
       // POST /api/baselines/<name>/rollback — body {to?} (index into the previous versions,
@@ -356,12 +371,14 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         }
         const to = body.to === undefined ? 0 : body.to;
         if (typeof to !== "number") return json({ error: '"to" must be a number' }, 400);
-        const manifest = manifestForWrite();
-        if (manifest instanceof Response) return manifest;
-        const res = rollbackBaseline(manifest, name, to, (p) => existsSync(join(o.rootDir, p)));
-        if (!res.ok) return json({ error: res.message }, 400);
-        writeManifest(o.manifestFile, res.manifest);
-        return json({ rolledBack: name, to: res.restored.approvedAt, from: res.restored.approvedFrom });
+        return updatingManifest(() => {
+          const manifest = manifestForWrite();
+          if (manifest instanceof Response) return manifest;
+          const res = rollbackBaseline(manifest, name, to, (p) => existsSync(join(o.rootDir, p)));
+          if (!res.ok) return json({ error: res.message }, 400);
+          writeManifest(o.manifestFile, res.manifest);
+          return json({ rolledBack: name, to: res.restored.approvedAt, from: res.restored.approvedFrom });
+        });
       }
 
       // DELETE /api/runs/<dirName> — server-side lock re-check, UI is advisory.

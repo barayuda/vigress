@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Viewport } from "./config";
 import type { RunResult, Summary, StepDiffVerdict } from "./types";
@@ -54,9 +54,14 @@ export function parseManifest(jsonText: string): Manifest {
   return m;
 }
 
+// Written to a temp file and renamed into place, so a reader (the dashboard reads the manifest
+// on every request) never sees a half-written file. Callers that read-modify-write should hold
+// withManifestLock (manifestLock.ts) around the whole sequence.
 export function writeManifest(file: string, manifest: Manifest): void {
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(manifest, null, 2) + "\n");
+  renameSync(tmp, file);
 }
 
 // "baseline:<name>" -> "<name>"; null for anything else (incl. empty names).
