@@ -91,6 +91,7 @@ function dirSegment(raw: string): string | null {
 }
 
 const CLI_PATH = join(import.meta.dir, "cli.ts");
+const CLIENT_JS_PATH = join(import.meta.dir, "dashboardClient.js");
 
 export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
   // The latest run-a-config job (running or finished); at most one runs at a time.
@@ -156,6 +157,11 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
           writers: o.writers,
         });
         if (!g.ok) return json({ error: g.reason }, 403);
+      }
+
+      // The page's behaviour: one fixed file, read from disk (not derived from the request).
+      if (req.method === "GET" && url.pathname === "/app.js") {
+        return new Response(Bun.file(CLIENT_JS_PATH), { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache" } });
       }
 
       if (req.method === "GET" && url.pathname === "/") {

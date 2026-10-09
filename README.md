@@ -958,7 +958,8 @@ vigress/
 │   ├── gitinfo.ts        # commit/branch recorded in summary.json; GitHub commit URL (pure)
 │   ├── jobs.ts           # dashboard "run a saved config / re-check a baseline": allowed names, args, job state (pure)
 │   ├── dashboard.ts      # dashboard view-model: run index, baseline index, locks, cleanup selection, path guard
-│   ├── dashboardHtml.ts  # the dashboard page (static, self-contained)
+│   ├── dashboardHtml.ts  # the dashboard page markup + CSS
+│   ├── dashboardClient.js # the page's behaviour (plain JS, served at /app.js; no build step)
 │   ├── server.ts         # Bun.serve wiring for `vigress dashboard` (127.0.0.1 only)
 │   ├── sources/          # baseline resolvers: url / image / figma
 │   ├── htmlReport.ts     # buildReportHtml(summary) → report.html
@@ -983,8 +984,8 @@ bun test
 Unit tests cover the pure logic only (diff + step diffs, config and argument parsing,
 sources parsing, baselines manifest + history, region/style math, compare, jobs, git
 info, dashboard view-model and page, HTML report, JSON payload) — no browser, no
-network. The dashboard page script is checked to *parse* (a stray escape in the template
-literal blanks the whole page and string checks cannot see it). There is no automated
+network. The dashboard's client script (`src/dashboardClient.js`) is checked to *parse* (a script that
+fails to parse blanks the whole page and string checks cannot see it). There is no automated
 browser suite: the browser/capture/video pipeline is verified by running a real
 comparison, and the dashboard server and page by using them (curl for the endpoint guards
 in [Dashboard](#dashboard)).

@@ -1,69 +1,77 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { buildDashboardHtml } from "./dashboardHtml";
+
+const client = readFileSync(join(import.meta.dir, "dashboardClient.js"), "utf8"); // the real script, served at /app.js
 
 describe("buildDashboardHtml", () => {
   const html = buildDashboardHtml();
+  const page = html + "\n" + client; // markup + behaviour: ids live in one, fetch URLs in the other
   it("is a complete standalone document", () => {
     expect(html).toStartWith("<!doctype html>");
     expect(html).toContain("<title>vigress dashboard</title>");
   });
   it("wires the client to the API", () => {
-    expect(html).toContain('fetch("/api/runs")');
-    expect(html).toContain("/api/cleanup");
-    expect(html).toContain("/files/");
+    expect(page).toContain('fetch("/api/runs")');
+    expect(page).toContain("/api/cleanup");
+    expect(page).toContain("/files/");
   });
   it("wires the run detail panel", () => {
-    expect(html).toContain("Details");
-    expect(html).toContain("/detail");
+    expect(page).toContain("Details");
+    expect(page).toContain("/detail");
   });
   it("has a side-by-side and slider comparison viewer", () => {
-    expect(html).toContain("Side by side");
-    expect(html).toContain("Slider");
-    expect(html).toContain('"range"');
+    expect(page).toContain("Side by side");
+    expect(page).toContain("Slider");
+    expect(page).toContain('"range"');
   });
   it("has filter controls and auto-refresh wired to the runs API", () => {
-    expect(html).toContain('id="q"');
-    expect(html).toContain("Auto-refresh");
-    expect(html).toContain('"/api/runs?"');
+    expect(page).toContain('id="q"');
+    expect(page).toContain("Auto-refresh");
+    expect(page).toContain('"/api/runs?"');
   });
   it("has a run bar for saved configs wired to the jobs API", () => {
-    expect(html).toContain('id="cfg"');
-    expect(html).toContain('id="run"');
-    expect(html).toContain('"/api/jobs"');
-    expect(html).toContain('"/api/configs"');
+    expect(page).toContain('id="cfg"');
+    expect(page).toContain('id="run"');
+    expect(page).toContain('"/api/jobs"');
+    expect(page).toContain('"/api/configs"');
   });
   it("wires baseline rollback and compare-with-previous", () => {
-    expect(html).toContain("/rollback");
-    expect(html).toContain("Rollback");
+    expect(page).toContain("/rollback");
+    expect(page).toContain("Rollback");
   });
   it("wires the approve action", () => {
-    expect(html).toContain("/approve");
+    expect(page).toContain("/approve");
   });
   it("has a baselines section wired to its API", () => {
-    expect(html).toContain('id="baselines"');
-    expect(html).toContain('fetch("/api/baselines")');
+    expect(page).toContain('id="baselines"');
+    expect(page).toContain('fetch("/api/baselines")');
   });
   it("has a trends section wired to its API", () => {
-    expect(html).toContain('id="trends"');
-    expect(html).toContain('"/api/trends"');
+    expect(page).toContain('id="trends"');
+    expect(page).toContain('"/api/trends"');
   });
   it("has a compare bar wired to the compare API", () => {
-    expect(html).toContain('id="cmp-a"');
-    expect(html).toContain('id="cmp-b"');
-    expect(html).toContain("/api/compare?");
+    expect(page).toContain('id="cmp-a"');
+    expect(page).toContain('id="cmp-b"');
+    expect(page).toContain("/api/compare?");
   });
-  it("ships a page script that actually parses", () => {
-    // A string-only check cannot see a stray raw newline inside a JS string (a template-literal
-    // escape slip), which makes the browser reject the whole script and blanks the page.
-    const script = html.match(/<script>([\s\S]*)<\/script>/)![1];
-    expect(() => new Function(script)).not.toThrow();
+  it("serves its script from /app.js, with no inline script left in the page", () => {
+    expect(html).toContain('<script src="/app.js"></script>');
+    expect(html).not.toMatch(/<script>/);
+  });
+  it("ships a client script that actually parses", () => {
+    // Syntax check only (never runs it): a script that fails to parse blanks the whole page
+    // and string checks cannot see that.
+    expect(() => new Function(client)).not.toThrow();
   });
   it("has the run list container and cleanup button", () => {
-    expect(html).toContain('id="runs"');
-    expect(html).toContain('id="cleanup"');
+    expect(page).toContain('id="runs"');
+    expect(page).toContain('id="cleanup"');
   });
   it("renders untrusted strings via textContent, not innerHTML interpolation", () => {
     // The client script must never build HTML by string-concatenating run data.
-    expect(html).not.toMatch(/(innerHTML|outerHTML|insertAdjacentHTML|document\.write)/);
+    expect(page).not.toMatch(/(innerHTML|outerHTML|insertAdjacentHTML|document\.write)/);
   });
 });
