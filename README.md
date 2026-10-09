@@ -940,7 +940,9 @@ without a browser.
 ```
 vigress/
 ├── src/
-│   ├── cli.ts            # entrypoint: parse args, dispatch subcommands, orchestrate
+│   ├── cli.ts            # entrypoint: parse args, dispatch to src/commands/
+│   ├── commands/         # one module per subcommand (login, initConfig, discover, approve, history, prune, compare, dashboard) + run.ts (the normal run, before/after)
+│   ├── runs.ts           # out/<run>/summary.json discovery shared by commands
 │   ├── args.ts           # every CLI option; bad command lines become a message + exit 2
 │   ├── config.ts         # types, viewport/clip parse, baseline detect, run/batch builder
 │   ├── auth.ts           # storageState load, login / login --check, expired-session detection

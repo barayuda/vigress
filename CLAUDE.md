@@ -36,7 +36,7 @@ The capture/diff/video pipeline has no automated test: verify it by running a re
 
 ## Architecture
 
-### The pipeline (orchestrated in `src/cli.ts`)
+### The pipeline (orchestrated in `src/commands/run.ts`)
 
 ```
 parse args/env (config.ts) → launch system Chrome/Edge (browser.ts, channel from VIGRESS_BROWSER)
@@ -59,6 +59,10 @@ git merge --ff-only <branch> && git push origin main                      # the 
 ```
 
 If `main` moved, rebase the branch first (`git rebase origin/main`, re-signs automatically), `git push --force-with-lease`, then fast-forward. The push to `main` needs the same admin bypass as `gh pr merge --admin` (the branch policy blocks everything else); keep each PR's commits tidy since they are not squashed. Then delete the branch (`git push origin --delete <branch>`).
+
+### CLI layout
+
+`src/cli.ts` is only the entrypoint: it parses the command line (`args.ts`) and dispatches to **one module per subcommand** in `src/commands/` (`login`, `initConfig`, `discover`, `approve`, `history` (also `rollback`), `prune`, `compare`, `dashboard`); anything else is a run (`commands/run.ts`, which also serves `before` / `after`). Each command is `async ({ values, positionals }: Ctx) => exit code`; a new subcommand is a new file plus one line in the `COMMANDS` table. Run-dir discovery shared by several commands is `runs.ts`. Keep logic in pure modules (see below) and only the I/O glue in a command.
 
 ### Pure logic vs browser I/O — the key separation
 
@@ -107,6 +111,6 @@ The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `ou
 - Every CLI option is declared once in `args.ts` (`parseCli`); a bad command line (unknown option, missing value, a value starting with `-`, which must be written `--opt=-value`) becomes a one-line message and exit 2, never a stack trace. A new flag goes there and into the README flags table.
 - `compare` (CLI) and `GET /api/compare` (dashboard) share `compareRuns` (`compareRuns.ts`, plans in the pure `compare.ts`): it diffs the same-named capture + shared step shots of two existing runs in memory and writes nothing (the CLI writes a PNG only for `--diff`). Deltas are **after minus before**. The result is deliberately not a run (no `summary.json`, so it never reaches the run list, trends or `approve`). Capture paths come from `summary.json`, a file on disk, so every read goes through `safeChildPath`.
 - A manifest entry keeps the versions it replaced in `history` (newest first, `MAX_HISTORY` 10, additive: no `MANIFEST_VERSION` bump). The rule lives once in `upsertBaseline` (so `approve`, the dashboard and `--update-baseline` all keep history) and `rollbackBaseline` (which keeps the replaced version, so a rollback is undoable, and refuses missing files). `pruneHistory` only edits the manifest (it deletes no files; the CLI reports which dropped run dirs are no longer referenced). `referencedRunDirs` must keep covering history versions: their run dirs are manifest-locked, otherwise Cleanup could delete a rollback target.
-- `before` / `after` are not a second pipeline: `prepareBeforeAfter` (`beforeAfter.ts`, pure) returns options that `cli.ts` merges into `values` before the normal single-run path (`before` = `--against baseline:<n> --update-baseline`, `after` = `--against baseline:<n>`, defaults for target/viewport/`--full-page` come from the manifest entry, `after` refuses `--update-baseline`). Keep any change in run behaviour in the normal path, not in these two commands.
+- `before` / `after` are not a second pipeline: `prepareBeforeAfter` (`beforeAfter.ts`, pure) returns options that `commands/run.ts` merges into `values` before the normal single-run path (`before` = `--against baseline:<n> --update-baseline`, `after` = `--against baseline:<n>`, defaults for target/viewport/`--full-page` come from the manifest entry, `after` refuses `--update-baseline`). Keep any change in run behaviour in the normal path, not in these two commands.
 - `approve` is manifest-only — artifacts stay in place under `out/` (no copying). This makes the approved run dir precious: **deleting an `out/<timestamp>/` dir that was approved breaks the baseline** until re-approved. The `.approved` marker file in the run dir is informational; the manifest is the contract.
 - `new` step-diff verdicts (a step added to the run since approval) **never trip any gate** by design — adding a step must not break CI until re-approval. Only `missing` (an approved step absent from the run) trips `--require-steps`.

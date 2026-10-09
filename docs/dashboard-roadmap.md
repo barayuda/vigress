@@ -10,7 +10,7 @@ Tailscale; zero-dependency page (no build step), as today.
 - **Tracer bullets.** Each stage starts with the thinnest end-to-end slice
   (manifest/file → pure function → API → page) and fills out from there.
 - **Pure vs I/O.** Decisions live in `dashboard.ts` (pure, unit-tested);
-  `server.ts` stays a thin shell; the page is built in `dashboardHtml.ts`
+  `server.ts` stays a thin shell; the page is `dashboardHtml.ts` (markup) + `dashboardClient.js` (behaviour)
   and renders data with `textContent` only. File-system checks are injected
   into pure functions so they test without a disk.
 - **One source of truth.** The dashboard calls the same code the CLI uses
