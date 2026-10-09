@@ -167,6 +167,8 @@ bun run src/cli.ts init-config <page> --target <url> --against <ref> [--viewport
 bun run src/cli.ts discover <page> --target <url> --against <url> [--viewport WxH] [--state f] [--max-steps n]
 bun run src/cli.ts approve <name> [--run <dir>]
 bun run src/cli.ts approve --all [--run <dir>]
+bun run src/cli.ts before <name> --target <url> [options]
+bun run src/cli.ts after <name> [options]
 bun run src/cli.ts compare <before-run> <after-run> [--name <run>] [--diff out.png] [--json]
 bun run src/cli.ts dashboard [--port 4600] [--out out]
 bun run src/cli.ts --config <file.json> [options]
@@ -212,6 +214,7 @@ bun run src/cli.ts --config <file.json> [options]
 - `approve <name> [--run <dir>]` — blesses a run's target capture and named step shots into `baselines/manifest.json`. Auto-finds the newest run containing `<name>` unless `--run` is given.
 - `approve --all [--run <dir>]` — blesses every entry in the run (for batch configs).
 - `history <name>` / `rollback <name> [--to <index>]` / `prune <name> [--keep <N>]` — list the earlier approved versions of a baseline, restore one, or forget the old ones; see [Baseline history](#baseline-history-and-rollback).
+- `before <name> --target <url>` / `after <name>` — a before/after check in two commands; see [Before / after in two commands](#before--after-in-two-commands).
 - `compare <before-run> <after-run>` — diffs the same-named capture (and step screenshots) of two **existing** runs, no baseline needed; see [Comparing two runs](#comparing-two-existing-runs-before--after).
 - `dashboard [--port 4600] [--out out]` — starts the local artifact-manager dashboard (see [Dashboard](#dashboard)).
 
@@ -375,6 +378,25 @@ failure.
 3. **Regression:** change the config's `against` to `baseline:<name>` (or use a separate baseline config). Future commits diff against the approved state.
 
 ---
+
+## Before / after in two commands
+
+```bash
+bun run src/cli.ts before home --target https://app.example.com/   # capture the starting point and bless it as baseline "home"
+# ... make your change (code, deploy, config) ...
+bun run src/cli.ts after home                                      # re-check: old vs new, regions, steps, heightDelta
+bun run src/cli.ts after home --max-mismatch 1                     # opt-in gate: exit 1 if more than 1% differs
+bun run src/cli.ts before home --target https://app.example.com/  # happy with the change? bless the new state (the old one is kept: `history home`)
+```
+
+These are thin wrappers over the normal single run — there is no second pipeline:
+
+- **`before`** is `--target <url> --against baseline:<name> --update-baseline`: the first time it bootstraps the baseline, later it re-blesses it (the replaced version is kept in history, see [Baseline history](#baseline-history-and-rollback)). `--target` is required.
+- **`after`** is `--against baseline:<name>`. It never blesses (`--update-baseline` is refused). The target URL, viewport and `--full-page` default from the baseline itself, so a bare `vigress after home` re-checks the page that was captured; `--target <other url>` points it somewhere else (e.g. after deploying to staging). It exits 1 with a hint if the baseline does not exist.
+- Both set `--against` and `--name` themselves (passing `--against` is an error); every other run flag works (`--state`, `--json`, `--no-video`, the gates, ...). If you pass a different `--viewport` / `--full-page` than the baseline was approved with, the usual mode check exits 2.
+- The same flow is in the dashboard: **Approve** a run (the "before"), then **Re-check an approved baseline** (the "after").
+
+For two runs you already have, with no baseline, use `compare` below.
 
 ## Comparing two existing runs (before / after)
 
