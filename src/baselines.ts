@@ -107,6 +107,22 @@ export function versionArtifacts(v: BaselineVersion): string[] {
   return [...new Set([v.artifacts.main, ...Object.values(v.artifacts.steps)])];
 }
 
+// Forget all but the newest `keep` previous versions. Nothing is deleted from disk: the
+// dropped versions' run dirs simply stop being manifest-locked (the caller reports them),
+// so they can be cleaned up like any other run. The current version is never touched.
+export function pruneHistory(
+  manifest: Manifest,
+  name: string,
+  keep: number,
+): { ok: true; manifest: Manifest; dropped: BaselineVersion[] } | { ok: false; message: string } {
+  if (!Object.hasOwn(manifest.baselines, name)) return { ok: false, message: `no approved baseline '${name}'` };
+  if (!Number.isInteger(keep) || keep < 0) return { ok: false, message: "keep must be a whole number, 0 or more" };
+  const { history = [], ...current } = manifest.baselines[name];
+  const kept = history.slice(0, keep);
+  const entry: ManifestEntry = kept.length ? { ...current, history: kept } : current;
+  return { ok: true, manifest: { ...manifest, baselines: { ...manifest.baselines, [name]: entry } }, dropped: history.slice(keep) };
+}
+
 // Make a previous version (index into `history`, 0 = the one just before) the current
 // baseline again. The version it replaces goes into history, so a rollback can itself
 // be undone. Refuses when the target's files are gone — rolling back onto missing

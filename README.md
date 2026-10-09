@@ -201,6 +201,7 @@ bun run src/cli.ts --config <file.json> [options]
 | `--update-baseline` | boolean | — | After the run completes, approve all results into `baselines/manifest.json`. If a `baseline:<name>` ref has no manifest entry yet, that run is a bootstrap: diff phase skipped, then approved. Works in both single-run and batch mode (all entries are approved in batch). |
 | `--run` | path | — | (approve only) bless from a specific run directory instead of auto-finding the newest. |
 | `--all` | boolean | — | (approve only) bless every entry in the run, not just the named one. |
+| `--keep` | number | `3` | (prune only) how many previous versions to keep. |
 | `--diff` | path | — | (compare only) write the diff image to this PNG. Without it nothing is written. |
 | `--port` | number | `4600` | (dashboard only) port to bind the local server. Invalid value → usage error + exit 2. |
 
@@ -210,7 +211,7 @@ bun run src/cli.ts --config <file.json> [options]
 - `discover <page>` — crawls the live `--target` DOM (read-only) and writes a run-ready `<page>.fullcheck.json`.
 - `approve <name> [--run <dir>]` — blesses a run's target capture and named step shots into `baselines/manifest.json`. Auto-finds the newest run containing `<name>` unless `--run` is given.
 - `approve --all [--run <dir>]` — blesses every entry in the run (for batch configs).
-- `history <name>` / `rollback <name> [--to <index>]` — list the earlier approved versions of a baseline, or restore one; see [Baseline history](#baseline-history-and-rollback).
+- `history <name>` / `rollback <name> [--to <index>]` / `prune <name> [--keep <N>]` — list the earlier approved versions of a baseline, restore one, or forget the old ones; see [Baseline history](#baseline-history-and-rollback).
 - `compare <before-run> <after-run>` — diffs the same-named capture (and step screenshots) of two **existing** runs, no baseline needed; see [Comparing two runs](#comparing-two-existing-runs-before--after).
 - `dashboard [--port 4600] [--out out]` — starts the local artifact-manager dashboard (see [Dashboard](#dashboard)).
 
@@ -343,6 +344,8 @@ bun run src/cli.ts history contact          # current + previous versions, with 
 bun run src/cli.ts rollback contact         # restore the previous version (index 0)
 bun run src/cli.ts rollback contact --to 2  # restore an older one
 ```
+
+`prune <name> [--keep N]` forgets all but the newest N previous versions (default 3; `--keep 0` forgets them all). It deletes **no files**: it only stops locking the dropped versions' run dirs and lists the ones no other baseline still uses, so you can delete them (dashboard or by hand) to get the disk back. The current version is never touched. Without pruning, history is capped at 10 versions per baseline anyway.
 
 `rollback` puts the version it replaces into history, so a rollback can itself be rolled back. It refuses when the target version's files are gone from `out/`, since the baseline would then fail at run time. To see what changed between versions: `vigress compare <old-run> <current-run>` (`approvedFrom` in `history` is the run dir).
 

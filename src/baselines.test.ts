@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   MANIFEST_VERSION, emptyManifest, parseManifest, parseBaselineRef,
   buildManifestEntry, upsertBaseline, resolveBaselineArtifacts,
-  pickNewestRun, stepDiffVerdict, approveRuns, rollbackBaseline, MAX_HISTORY, type RunDirCandidate,
+  pickNewestRun, stepDiffVerdict, approveRuns, rollbackBaseline, pruneHistory, MAX_HISTORY, type RunDirCandidate,
 } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -279,5 +279,35 @@ describe("baseline history", () => {
     it("treats __proto__ as an unknown name", () => {
       expect(rollbackBaseline(three(), "__proto__", 0, allThere).ok).toBe(false);
     });
+  });
+});
+
+describe("pruneHistory", () => {
+  const ver = (dir: string, at: string) => buildManifestEntry(run(), `out/${dir}`, at);
+  const five = () => ["a", "b", "c", "d", "e"].reduce((m, d, i) => upsertBaseline(m, "page", ver(d, "t" + i)), emptyManifest()); // current e, history [d c b a]
+
+  it("keeps the newest N previous versions and reports the dropped ones (oldest last)", () => {
+    const r = pruneHistory(five(), "page", 2);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.manifest.baselines.page.history!.map((h) => h.approvedFrom)).toEqual(["out/d", "out/c"]);
+    expect(r.dropped.map((h) => h.approvedFrom)).toEqual(["out/b", "out/a"]);
+    expect(r.manifest.baselines.page.approvedFrom).toBe("out/e"); // the current version is never touched
+  });
+  it("keep 0 removes the whole history field", () => {
+    const r = pruneHistory(five(), "page", 0);
+    expect(r.ok && "history" in r.manifest.baselines.page).toBe(false);
+    expect(r.ok && r.dropped).toHaveLength(4);
+  });
+  it("does nothing (and says so) when there is nothing to drop; does not mutate the input", () => {
+    const m = five();
+    const r = pruneHistory(m, "page", 10);
+    expect(r.ok && r.dropped).toEqual([]);
+    expect(m.baselines.page.history).toHaveLength(4);
+  });
+  it("refuses an unknown name and a bad count", () => {
+    expect(pruneHistory(five(), "nope", 1).ok).toBe(false);
+    expect(pruneHistory(five(), "__proto__", 1).ok).toBe(false);
+    for (const bad of [-1, 1.5, NaN]) expect(pruneHistory(five(), "page", bad).ok).toBe(false);
   });
 });

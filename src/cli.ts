@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
-import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, buildManifestEntry, upsertBaseline, approveRuns, rollbackBaseline, versionArtifacts, pickNewestRun, parseBaselineRef, resolveBaselineArtifacts, type RunDirCandidate, type ManifestEntry } from "./baselines";
+import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, buildManifestEntry, upsertBaseline, approveRuns, rollbackBaseline, pruneHistory, versionArtifacts, pickNewestRun, parseBaselineRef, resolveBaselineArtifacts, type RunDirCandidate, type ManifestEntry } from "./baselines";
 import type { BrowserContext } from "playwright";
 import { buildRunConfig, buildScaffoldConfig, scaffoldPlaceholders, parseViewport, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type RunSpec, type ChecklistItem, type Box } from "./config";
 import { runSteps, autoExplore, stepSummary } from "./steps";
@@ -20,6 +20,7 @@ import { buildGitInfo } from "./gitinfo";
 import { SCHEMA_VERSION, type GitInfo, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type StepDiff, type Summary } from "./types";
 import { startDashboard } from "./server";
 import { compareRuns } from "./compareRuns";
+import { referencedRunDirs } from "./dashboard";
 import { commonRunNames } from "./compare";
 
 const { values, positionals } = parseArgs({
@@ -59,6 +60,7 @@ const { values, positionals } = parseArgs({
     port: { type: "string" },
     diff: { type: "string" },
     to: { type: "string" },
+    keep: { type: "string" },
   },
 });
 
@@ -316,6 +318,38 @@ async function main(): Promise<number> {
     }
     writeManifest(manifestFile, res.manifest);
     process.stdout.write(`rolled '${name}' back to the version approved ${res.restored.approvedAt} from ${res.restored.approvedFrom}\nthe version it replaced is kept: run \`vigress history ${name}\`\n`);
+    return 0;
+  }
+
+  // prune subcommand: forget old baseline versions beyond the newest N (default 3). Deletes no files.
+  if (positionals[0] === "prune") {
+    const name = positionals[1];
+    if (!name) {
+      process.stderr.write("Usage: vigress prune <name> [--keep <N>]   (keeps the newest N previous versions, default 3; deletes no files)\n");
+      return 2;
+    }
+    const manifestFile = resolve(MANIFEST_PATH);
+    if (!existsSync(manifestFile)) {
+      process.stderr.write(`vigress prune: no baselines manifest at ${MANIFEST_PATH}\n`);
+      return 1;
+    }
+    const manifest = parseManifest(readFileSync(manifestFile, "utf8"));
+    const res = pruneHistory(manifest, name, typeof values.keep === "string" ? Number(values.keep) : 3);
+    if (!res.ok) {
+      process.stderr.write(`vigress prune: ${res.message}\n`);
+      return 1;
+    }
+    if (!res.dropped.length) {
+      process.stdout.write(`nothing to prune for '${name}'\n`);
+      return 0;
+    }
+    writeManifest(manifestFile, res.manifest);
+    const stillLocked = referencedRunDirs(res.manifest);
+    const freed = [...new Set(res.dropped.map((v) => v.approvedFrom))].filter((d) => !stillLocked.has(d));
+    process.stdout.write(
+      `dropped ${res.dropped.length} old version(s) of '${name}'\n` +
+      (freed.length ? `no longer locked (delete them in the dashboard if you want the disk back):\n${freed.map((d) => "  " + d).join("\n")}\n` : "their run dirs are still used by another baseline\n"),
+    );
     return 0;
   }
 
