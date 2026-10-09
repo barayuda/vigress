@@ -6,10 +6,13 @@
   "description": "General-purpose visual-regression CLI (URL/image/Figma baselines, pixel diff + video)",
   "license": "MIT",
   "author": "Bara Yuda",
-  "bin": { "vigress": "./src/cli.ts" },
+  "bin": {
+    "vigress": "./src/cli.ts"
+  },
   "scripts": {
     "test": "bun test",
-    "vigress": "bun run src/cli.ts"
+    "vigress": "bun run src/cli.ts",
+    "test:ui": "bun run uitest/smoke.ts"
   },
   "dependencies": {
     "pixelmatch": "^5.3.0",

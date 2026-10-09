@@ -987,7 +987,21 @@ network. The dashboard page script is checked to *parse* (a stray escape in the 
 literal blanks the whole page and string checks cannot see it). There is no automated
 browser suite: the browser/capture/video pipeline is verified by running a real
 comparison, and the dashboard server and page by using them (curl for the endpoint guards
-in [Dashboard](#dashboard), a headless browser for the page).
+in [Dashboard](#dashboard)).
+
+### UI smoke test (opt-in)
+
+```bash
+bun run test:ui
+```
+
+`uitest/smoke.ts` seeds a throwaway repo, starts the **real** dashboard and drives it with a
+real browser (Playwright, via `VIGRESS_BROWSER`, default `chrome`). It covers what unit tests
+cannot: the filters, the Cleanup safety confirmation, links built from `summary.json`, Details
+surviving an auto-refresh, rollback and approve, compare, trends, running a saved config
+(including the one-at-a-time refusal) and re-checking a baseline. It needs an installed
+browser, opens ports on `127.0.0.1`, takes about two minutes, and cleans up after itself. It is
+not part of `bun test`.
 
 ---
 

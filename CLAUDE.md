@@ -13,6 +13,7 @@ bun install                          # setup (uses system Chrome; no Playwright 
 bun test                             # all unit tests
 bun test src/diff.test.ts            # single test file
 bun test -t "pattern"                # filter by test name
+bun run test:ui                      # opt-in: drives the real dashboard in a real browser (~2 min, needs a browser); run it after touching dashboardHtml.ts or server.ts
 bunx tsc --noEmit                    # typecheck (tsconfig is strict + noEmit; the only static check)
 
 # Run the CLI
@@ -31,7 +32,7 @@ bun run src/cli.ts --config <page>.fullcheck.json --update-baseline   # run norm
 bun run src/cli.ts dashboard [--port 4600] [--out out]                # local artifact-manager dashboard (serves until Ctrl-C)
 ```
 
-There is no browser-based integration test suite — the capture/diff/video pipeline is verified by running a real comparison and opening `out/<timestamp>/report.html`.
+The capture/diff/video pipeline has no automated test: verify it by running a real comparison and opening `out/<timestamp>/report.html`. The dashboard page and server are covered by the opt-in `bun run test:ui` (`uitest/smoke.ts`); add a check there when you fix a UI bug (a race or a re-render problem cannot be seen by the unit tests).
 
 ## Architecture
 
@@ -46,6 +47,18 @@ parse args/env (config.ts) → launch system Chrome/Edge (browser.ts, channel fr
 ```
 
 Interaction modes: `static` (`--no-steps`), `steps` (explicit steps configured), or `explore` (the default — auto-opens up to 6 "safe" controls with a safelist, destructive-text skip, URL-change abort, ~12s cap).
+
+### Merging pull requests (signed commits)
+
+The GitHub squash/merge buttons (and `gh pr merge`) create the commit on `main` signed with **GitHub's** key, which breaks the rule that every commit is signed as the maintainer (it shows as `E` in `git log --format=%G?`). Merge locally instead, so the signed commits on the branch are what lands on `main`:
+
+```bash
+git fetch origin && git switch main && git merge --ff-only origin/main   # main up to date
+git log --format='%h %G?' main..<branch>                                  # every line must be G
+git merge --ff-only <branch> && git push origin main                      # the PR closes as merged
+```
+
+If `main` moved, rebase the branch first (`git rebase origin/main`, re-signs automatically), `git push --force-with-lease`, then fast-forward. The push to `main` needs the same admin bypass as `gh pr merge --admin` (the branch policy blocks everything else); keep each PR's commits tidy since they are not squashed. Then delete the branch (`git push origin --delete <branch>`).
 
 ### Pure logic vs browser I/O — the key separation
 

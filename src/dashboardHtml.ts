@@ -136,6 +136,7 @@ async function load(force = true) {
   await loadBaselines();
   await loadTrends();
   await fillCompare();
+  await loadConfigs(); // a run just approved becomes a baseline you can re-check
 }
 
 function img(src, alt) { const i = document.createElement("img"); i.src = src; i.alt = alt; i.loading = "lazy"; return i; }
@@ -481,9 +482,14 @@ const statusEl = document.getElementById("jobstatus");
 const tailEl = document.getElementById("jobtail");
 
 // Option values are "config:<file>" or "baseline:<name>"; the server re-validates both.
+let lastCfgJson = "";
 async function loadConfigs() {
-  const { configs, baselines } = await (await fetch("/api/configs")).json();
+  const text = await (await fetch("/api/configs")).text();
+  if (text === lastCfgJson) return; // do not rebuild (and close) an open dropdown on every refresh
+  lastCfgJson = text;
+  const { configs, baselines } = JSON.parse(text);
   const sel = document.getElementById("cfg");
+  const keep = sel.value;
   sel.replaceChildren();
   const group = (label, kind, names) => {
     if (!names.length) return;
@@ -495,7 +501,8 @@ async function loadConfigs() {
   group("Saved configs", "config", configs);
   group("Re-check an approved baseline", "baseline", baselines);
   if (!sel.options.length) { const o = document.createElement("option"); o.textContent = "nothing to run: no *.fullcheck.json in the repo root, no approved baselines"; sel.appendChild(o); }
-  document.getElementById("run").disabled = !canRun();
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+  if (!polling) document.getElementById("run").disabled = !canRun(); // a running job keeps it disabled
 }
 
 const canRun = () => /^(config|baseline):./.test(document.getElementById("cfg").value);
@@ -633,7 +640,6 @@ setInterval(() => {
 }, 5000);
 
 load();
-loadConfigs();
 pollJob().then((running) => { if (running) startPolling(); });
 </script>
 </body>
