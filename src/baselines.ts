@@ -93,8 +93,11 @@ export function upsertBaseline(manifest: Manifest, name: string, entry: Manifest
   let next: ManifestEntry = entry;
   if (Object.hasOwn(manifest.baselines, name)) {
     const { history: prevHistory = [], ...prevVersion } = manifest.baselines[name];
-    const same = prevVersion.approvedFrom === entry.approvedFrom && prevVersion.artifacts.main === entry.artifacts.main;
-    const history = same ? prevHistory : [prevVersion, ...prevHistory].slice(0, MAX_HISTORY);
+    const isSameRun = (v: BaselineVersion): boolean => v.approvedFrom === entry.approvedFrom && v.artifacts.main === entry.artifacts.main;
+    // The new current version never also sits in history (it can, after a rollback and a
+    // re-approve of the newer run), and re-approving the current run keeps history as is.
+    const kept = prevHistory.filter((v) => !isSameRun(v));
+    const history = isSameRun(prevVersion) ? kept : [prevVersion, ...kept].slice(0, MAX_HISTORY);
     next = { ...entry, ...(history.length ? { history } : {}) };
   }
   return { ...manifest, baselines: { ...manifest.baselines, [name]: next } };

@@ -222,6 +222,15 @@ describe("baseline history", () => {
     expect(m.baselines.page.history).toBeUndefined();
     expect(m.baselines.page.approvedAt).toBe("t2");
   });
+  it("never lists the current version in its own history (re-approving an older run after a rollback)", () => {
+    let m = approve(approve(emptyManifest(), "a", "t1"), "b", "t2");           // current b, history [a]
+    const rolled = rollbackBaseline(m, "page", 0, allThere);                   // current a, history [b]
+    expect(rolled.ok).toBe(true);
+    if (!rolled.ok) return;
+    m = upsertBaseline(rolled.manifest, "page", ver("b", "t3"));               // approve b's run again
+    expect(m.baselines.page.approvedFrom).toBe("out/b");
+    expect(m.baselines.page.history!.map((h) => h.approvedFrom)).toEqual(["out/a"]); // not [a, b]
+  });
   it("keeps at most MAX_HISTORY versions, dropping the oldest", () => {
     let m = emptyManifest();
     for (let i = 0; i < MAX_HISTORY + 4; i++) m = approve(m, "r" + i, "t" + i);

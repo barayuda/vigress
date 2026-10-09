@@ -274,7 +274,7 @@ function render() {
       approveBtn.title = "Make this run's captures the approved baseline";
       approveBtn.onclick = async () => {
         const names = r.entries.map((e) => e.name).join(", ");
-        if (!confirm("Approve " + names + " from " + r.dirName + "? This replaces their current baselines.")) return;
+        if (!confirm("Approve " + names + " from " + r.dirName + "? The current baselines are kept in history, so you can roll back.")) return;
         const res = await fetch("/api/runs/" + encodeURIComponent(r.dirName) + "/approve", {
           method: "POST",
           headers: { "content-type": "application/json" },
