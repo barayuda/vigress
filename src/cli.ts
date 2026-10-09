@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { parseArgs } from "node:util";
+import { parseCli } from "./args";
 import { mkdirSync, existsSync, writeFileSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
 import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, buildManifestEntry, upsertBaseline, approveRuns, rollbackBaseline, pruneHistory, versionArtifacts, pickNewestRun, parseBaselineRef, resolveBaselineArtifacts, type RunDirCandidate, type ManifestEntry } from "./baselines";
@@ -24,46 +24,12 @@ import { prepareBeforeAfter } from "./beforeAfter";
 import { referencedRunDirs } from "./dashboard";
 import { commonRunNames } from "./compare";
 
-const { values, positionals } = parseArgs({
-  args: Bun.argv.slice(2),
-  allowPositionals: true,
-  options: {
-    target: { type: "string" },
-    against: { type: "string" },
-    "against-type": { type: "string" },
-    name: { type: "string" },
-    out: { type: "string" },
-    "no-timestamp": { type: "boolean" },
-    viewport: { type: "string" },
-    state: { type: "string" },
-    video: { type: "boolean" },
-    "no-video": { type: "boolean" },
-    clip: { type: "string" },
-    "full-page": { type: "boolean" },
-    threshold: { type: "string" },
-    json: { type: "boolean" },
-    quiet: { type: "boolean" },
-    "max-mismatch": { type: "string" },
-    "max-height-delta": { type: "string" },
-    config: { type: "string" },
-    url: { type: "string" },
-    region: { type: "string", multiple: true },
-    mask: { type: "string", multiple: true },
-    "no-steps": { type: "boolean" },
-    step: { type: "string", multiple: true },
-    "require-steps": { type: "boolean" },
-    "require-style": { type: "boolean" },
-    "max-steps": { type: "string" },
-    check: { type: "boolean" },
-    "update-baseline": { type: "boolean" },
-    run: { type: "string" },
-    all: { type: "boolean" },
-    port: { type: "string" },
-    diff: { type: "string" },
-    to: { type: "string" },
-    keep: { type: "string" },
-  },
-});
+const parsed = parseCli(Bun.argv.slice(2));
+if (!parsed.ok) {
+  process.stderr.write(parsed.message + "\n");
+  process.exit(2);
+}
+const { values, positionals } = parsed;
 
 function log(quiet: boolean, msg: string): void {
   if (!quiet) process.stdout.write(msg + "\n");

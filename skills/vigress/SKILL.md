@@ -168,6 +168,7 @@ Flags always win over env vars (Bun loads `.env` from the working directory).
 |---|---|
 | `FIGMA_TOKEN` | needed for `figma:` baselines |
 | `VIGRESS_OUT` / `VIGRESS_STATE` / `VIGRESS_VIEWPORT` | defaults for `--out` / `--state` / `--viewport` |
+| `VIGRESS_DASHBOARD_WRITERS` | comma-separated Tailscale logins allowed to change things through `tailscale serve` (dashboard, human only; unset = tailnet read-only) |
 | `VIGRESS_BROWSER` | `chrome` (default), `msedge`, `chrome-beta`, `msedge-beta` |
 | `VIGRESS_SETTLE` | ms to wait for the network to go idle (default 8000); SPAs with persistent sockets never reach it, so it is only a cap |
 | `VIGRESS_DWELL` | ms to hold after each step so the video shows it (default 1000) |
