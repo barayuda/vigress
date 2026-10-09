@@ -965,7 +965,7 @@ vigress/
 │   ├── json.ts           # buildJsonPayload(summary) → absolute-path agent payload
 │   ├── report.ts         # writes summary.json + report.html
 │   └── types.ts          # RunResult / Summary / SCHEMA_VERSION
-├── skills/vigress/       # AI skill + playbook (symlinked into ~/.claude/skills)
+├── skills/vigress/       # AI skill (short SKILL.md core + references/ read on demand) + playbook (symlinked into ~/.claude/skills)
 ├── docs/                 # dashboard roadmap + security model, project-level VIGRESS.md template
 ├── baselines/            # manifest.json — approved baselines (git-tracked; created by `approve`)
 ├── .env.example

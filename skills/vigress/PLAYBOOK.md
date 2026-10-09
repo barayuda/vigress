@@ -126,6 +126,6 @@ the page has animation or the auto-explore triggers noise).
 ## Parity → bless → regression
 
 The flow (approve, `baseline:` refs, `--update-baseline`, step-diff verdicts and
-the CI warning) lives in one place: **SKILL.md → "Baseline snapshots"**. This
+the CI warning) lives in one place: **`references/baselines.md`** (in this skill folder). This
 playbook only adds the archetype checklists above and the noise catalog; use
 those regions and masks in the regression config too.

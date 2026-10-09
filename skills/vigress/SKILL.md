@@ -44,14 +44,14 @@ repo; uses system Chrome.
 | Goal | Command |
 |---|---|
 | Compare one page to staging / an image / a Figma frame | `--target <url> --against <url\|img.png\|figma:KEY/NODE>` |
-| Check several pages, or parity + functionality in one report | `--config <file>.json` (see "Full check") |
+| Check several pages, or parity + functionality in one report | `--config <file>.json` (see `references/fullcheck-and-discover.md`) |
 | Get a starter config | `init-config <page>` (placeholders) or `discover <page>` (from the live DOM) |
 | Is the saved session still valid? | `login --url <u> --state <f> --check --json` |
 | Bless a good run as the baseline | `approve <name>` / `approve --all` |
 | Guard against regressions after that | `--against baseline:<name>` |
 | See, restore or forget earlier approved versions | `history <name>` / `rollback <name> [--to N]` / `prune <name> [--keep N]` |
-| Before/after a change you are about to make | `before <name> --target <url>`, change, then `after <name>` (see "Before / after") |
-| Before/after of runs you already have, no baseline | `compare <before-run> <after-run> [--name <run>] [--diff out.png] [--json]` (see "Compare two runs") |
+| Before/after a change you are about to make | `before <name> --target <url>`, change, then `after <name>` (see `references/baselines.md`) |
+| Before/after of runs you already have, no baseline | `compare <before-run> <after-run> [--name <run>] [--diff out.png] [--json]` (see `references/baselines.md`) |
 | Browse, keep, delete old runs | `dashboard` (human only — blocks) |
 
 ## Quick start
@@ -84,7 +84,7 @@ batch); `--no-video` or `"video": false` on a batch entry skips it.
 - `https://…` → capture that URL  ·  `./file.png` → use that image  ·
   `figma:FILEKEY/NODEID` → Figma REST export at 1× (needs `FIGMA_TOKEN`)  ·
   `baseline:<name>` → approved capture from `baselines/manifest.json`
-  (see "Baseline snapshots").
+  (see `references/baselines.md`).
 
 ## Batch
 
@@ -144,7 +144,7 @@ or an unexpected error · `2` usage error (also: missing or mismatched baseline)
 | `--max-mismatch <pct>` | the worst of any run's or step diff's mismatch % exceeds it |
 | `--max-height-delta <px>` | a run's target and baseline heights differ by more than this |
 | `--require-steps` | any check step failed (`check: true`, `status: "failed"`) or an approved step is `missing` |
-| `--require-style` | any region's `styleDiff` has a `match: false` (see "Style diffing") |
+| `--require-style` | any region's `styleDiff` has a `match: false` (see `references/regions-and-style.md`) |
 
 `new` step-diff verdicts (steps added since approval) never trip a gate.
 
@@ -180,355 +180,17 @@ Flags always win over env vars (Bun loads `.env` from the working directory).
   prefer per-region `maxMismatch` over loosening it.
 - Reuse one `--state` across runs; ask the human to re-run `login` when it expires.
 
-## Regions, masks & checklists
+## Reference (read only when you need it)
 
-A config entry (or a single run) can include fine-grained sub-regions, noise masks, and a structured checklist.
+These live next to this file in `references/`; each starts with when to read it.
 
-**Config shape (`regions[]`):**
-```json
-{
-  "name": "dashboard",
-  "target": "http://localhost:3000/dashboard",
-  "against": "https://staging.example.com/dashboard",
-  "regions": [
-    {
-      "name": "filter-bar",
-      "target": "[data-testid=report-filter]",
-      "baseline": ".report__filter",
-      "maxMismatch": 2
-    },
-    {
-      "name": "summary-cards",
-      "selector": "[data-testid=summary-card]"
-    }
-  ],
-  "mask": [
-    { "selector": "[data-testid=date-filter]" }
-  ],
-  "checklist": [
-    { "aspect": "filter-bar width/stretch", "region": "filter-bar", "verdict": "unresolved" },
-    { "aspect": "summary-card radius/border/proportions", "region": "summary-cards", "verdict": "unresolved" }
-  ]
-}
-```
-
-**`regions[]` field reference:**
-
-| field | meaning |
+| Need | Read |
 |---|---|
-| `name` | identifier used in artifact names (`<name>.<region>.diff.png`) |
-| `target` | CSS selector on the **target** side (e.g. new app with `data-testid`) |
-| `baseline` | CSS selector on the **baseline** side (e.g. legacy staging class) |
-| `selector` | CSS selector applied to **both** sides |
-| `clip` | raw `{x,y,width,height}` fallback when selectors are absent |
-| `maxMismatch` | per-region mismatch threshold % (default 5) |
-
-Precedence per side: `target`/`baseline` → `selector` → `clip`.
-
-**`mask[]` field reference:** same `target`, `baseline`, `selector`, `clip` shape. Matched regions are painted opaque magenta on both sides before diffing — the saved screenshots show the magenta boxes so the report reflects exactly what was compared.
-
-**Region verdicts:** `pass` / `fail` / `unresolved`. Fail reason is `geometry` (width or height differs by >2px) or `content` (`mismatchPercent > maxMismatch`). `unresolved` means the selector matched on neither side.
-
-**CLI flags (single-run, repeatable):**
-```
---region "name=filter-bar;target=[data-testid=report-filter];baseline=.report__filter;max=2"
---mask   "selector=[data-testid=date-filter]"
-```
-Fields are delimited by `;`. For `clip`, keep commas in the value: `clip=277,175,280,205`.
-
-## Style diffing (color, size, spacing)
-
-Pixel diff answers "how many pixels differ" — it does not say **why**. A region
-can score `pass` (low mismatch %) while a real color or spacing regression is
-still there (e.g. red text vs green text on a tiny element barely moves the
-pixel count). Add `style` to a region to get an exact property-by-property
-answer instead of eyeballing the diff image.
-
-**Config shape:**
-```json
-{
-  "name": "header",
-  "selector": "[data-testid=page-title]",
-  "maxMismatch": 4,
-  "style": true
-}
-```
-- `"style": true` probes a sensible default set: `color`, `backgroundColor`,
-  `fontSize`, `fontWeight`, `fontFamily`, `padding`, `margin`, `border`,
-  `borderRadius`, `boxShadow`.
-- `"style": ["color", "backgroundColor"]` probes exactly those CSS properties
-  (camelCase, as read from `getComputedStyle`).
-- Omitted or `false` disables it (default) — no extra browser work for regions
-  that don't need it.
-
-**CLI flag:** append `;style=color,backgroundColor` (or `;style=true`) to a
-`--region` flag.
-
-**Result (`regions[].styleDiff`):** an array of
-`{ property, target, baseline, match }` — `target`/`baseline` are the raw
-computed-style strings from each side, `match` is `false` when they genuinely
-differ (values are whitespace-normalized first, so `rgb(0,0,0)` and
-`rgb(0, 0, 0)` count as equal). `report.html` renders a small monospace table
-under the region row: `<region> style: N/M mismatch(es)`, with mismatched rows
-in red.
-
-**Scope:** style is probed only on regions with a resolvable selector — never
-on masks, and never against an `image`/`figma` baseline (there's no live DOM to
-read `getComputedStyle` from; those baselines report no `styleDiff` for the
-region). Use it against a **live staging URL** baseline.
-
-**Gating:** `--require-style` exits non-zero if any probed property mismatches.
-Combine with `--max-mismatch`/`--require-steps` to gate visual drift,
-interaction health, and style parity in one run.
-
-## Interaction steps
-
-By default every run **auto-explores safe controls** (comboboxes, popovers, filter
-inputs, aria-expanded buttons) — opening and closing up to 6, recorded in the
-video. This exercises the interactive state of the page without any configuration.
-
-Pass `steps` (in the config) or `--step` (CLI, repeatable) to drive a **precise
-flow** instead. Use a `screenshot` action to capture the interacted state mid-flow:
-the image is saved as `<name>.<shot>.png`, shown in the "flow shots" strip in the
-report, and surfaced in `shots[]` in the JSON payload (not diffed).
-
-Pass `--no-steps` to disable interaction entirely and take a **static** capture.
-
-Interaction runs on the **target only**, after the clean diff screenshot — parity
-is unaffected. The run `mode` (`static` / `explore` / `steps`) appears in both
-the JSON output and the HTML report.
-
-**Default precedence:** `--no-steps` → `static`; `steps`/`--step` present →
-`steps`; otherwise → `explore` (auto-explore, the default).
-
-### Asserting outcomes (not just clickability)
-
-A `click` step passing only proves the selector resolved and the click ran —
-not that anything happened. Follow interactions with an `assert` step to verify
-the **outcome**; a control that "clicks fine" but does nothing then fails the
-check (and `--require-steps` gates on it):
-
-```json
-"steps": [
-  { "action": "click",  "selector": "[data-testid=export-btn]" },
-  { "action": "assert", "selector": "[role=dialog]", "state": "visible" },
-  { "action": "assert", "selector": ".toast", "text": "Export started" },
-  { "action": "assert", "urlContains": "/reports" }
-]
-```
-
-`assert` needs `selector` and/or `urlContains`; optional `state`
-(`visible` default, or `hidden`) and `text` (element text must contain it).
-CLI form: `--step "action=assert;selector=[role=dialog];state=visible"`.
-
-### Per-step pass/fail results
-
-Each step reports a result. `summary.json` and `--json` are **schemaVersion 10**
-and include `mode`, `shots[]`, `steps[]`, and `stepDiffs[]` on each run entry.
-The `steps[]` shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
-
-- `check: true` for selector-dependent actions (`click`, `fill`, `select`,
-  `hover`; `press`/`scroll`/`waitFor` when a `selector` is given) and always
-  for `assert` — these count as **functionality checks**.
-- `check: false` for `screenshot` and selector-less `press`/`scroll`/`waitFor`.
-- `status: "ok"` means the selector resolved and the action ran; `"failed"` means
-  the element was not found or the action threw (the error is in `error`).
-
-`report.html` shows a **Functionality table** per run (`# · action · selector ·
-result ✓/✗`, failed rows red) and a header line
-`functionality: X/Y checks passed`.
-
-### Gating on failed checks
-
-Pass `--require-steps` to exit non-zero if any check step failed. This combines
-with `--max-mismatch` so you can gate on both visual drift and interaction health.
-
-### Controlling dwell time
-
-Set `VIGRESS_DWELL=<ms>` (default `1000`) to control how long vigress holds after
-each step before proceeding. A higher value gives the video more time to show
-each interaction clearly.
-
-## Full check (UI parity + functionality + UX in one run)
-
-The **full check** is the recommended run for verifying a migrated or
-redesigned page against staging: one config that emits all three signals in a
-single report — **UI parity** (regions scorecard + masks vs the baseline),
-**functionality** (per-step pass/fail for every filter AND download via
-`data-testid`), and a dwell-paced **UX walkthrough** video. Use it instead of a
-plain visual diff whenever the page has interactive controls worth proving.
-
-**Scaffold a starter config** with `init-config` instead of hand-writing the JSON:
-```bash
-bun run src/cli.ts init-config <page> --target <url> --against <url|img.png|figma:KEY/NODE> [--viewport WxH]
-```
-It writes `<page>.fullcheck.json` pre-filled with the URLs, viewport (default
-1440×1000), and placeholder `regions`/`mask`/`checklist`/`steps` whose names are
-prefixed `REPLACE-`. It never inspects the page or guesses selectors — you edit
-the `REPLACE-*` entries with real clip coords + `data-testid`s. It refuses to
-overwrite an existing file. Skip it and copy an existing config if that is faster.
-
-Pass `--json` and it emits `{file, page, created, placeholders:[...], next}` (and
-`{file, page, created:false, error:"exists"}` + exit 1 if the file exists) — so an
-agent gets the path, the exact `REPLACE-*` tokens to resolve, and the run command
-without parsing prose.
-
-Name the config `<page>.fullcheck.json`. It combines:
-- `regions` + `mask` → the visual parity scorecard (see "Regions, masks & checklists")
-- `checklist` → ties each region to a named aspect
-- `steps` → drives every interactive control (filters + downloads) so each
-  reports an ok/failed functionality check (see "Interaction steps")
-
-```bash
-bun run src/cli.ts --config <page>.fullcheck.json --state auth.state.json --json
-```
-
-Interaction `steps` run on the **target only**, after the clean diff
-screenshot — so functionality `data-testid`s only need to exist on the target
-(the new app); the `against` baseline (e.g. staging) needs none, and parity is
-unaffected. Open the resulting `report.html`: scorecard table + checklist +
-`functionality: X/Y checks passed` + flow-shots + video. Add `--require-steps`
-(optionally with `--max-mismatch`) to gate on both interaction health and drift.
-
-A typical full check defines ~4–8 parity regions plus `steps` covering every
-filter and download control, producing a scorecard + an `X/Y checks passed`
-functionality table + a UX video in one report. Keep the config in the project
-repo you are testing (e.g. `<page>.fullcheck.json`), not in this skill — the
-skill is project-agnostic; the configs are project-specific.
-
-## Discover (generate a fullcheck config from the live DOM)
-
-`init-config` scaffolds a template with `REPLACE-*` placeholders — it never
-inspects the page. `discover` does the opposite: it crawls the live
-**`--target`** DOM and writes a run-ready `<page>.fullcheck.json` with real
-selectors, regions, and steps, no placeholders.
-
-```bash
-bun run src/cli.ts discover <page> --target <url> --against <url> \
-  [--viewport WxH] [--state auth.state.json] [--max-steps 20] [--json]
-```
-
-**How it works (read-only — never clicks or types during discovery):**
-1. Navigates `--target` and waits for it to settle (no `--against` navigation —
-   the baseline is written into the config as-is, for the human to review).
-2. Runs one in-page DOM scan for functionally-relevant elements (buttons,
-   links, inputs, selects, `[data-testid]`, `[role=button]`,
-   `[role=combobox]`, `[aria-haspopup]`) — visible, enabled, capped at 200 raw
-   matches.
-3. Drops destructive-sounding controls (reuses the same `delete`/`log out`/
-   `hapus` filter as auto-explore) and de-duplicates by resolved selector.
-4. Picks the most stable selector per control: `data-testid` > `id` >
-   `aria-label` > a nth-of-type DOM path fallback.
-5. Clusters the surviving controls' bounding boxes into horizontal bands
-   (`region-1`, `region-2`, …) as a starting parity scorecard.
-6. Emits up to `--max-steps` (default 20) `click` + `screenshot` step pairs in
-   layout order, closing dropdown-like controls (`role=combobox`, `<select>`,
-   `aria-haspopup`) with `Escape` before the next step.
-
-**Output:** the same `<page>.fullcheck.json` shape as `init-config`/`--config`
-— open it, review the selectors/region boundaries/step order, adjust
-`maxMismatch` per region, then run it like any other full check:
-```bash
-bun run src/cli.ts --config <page>.fullcheck.json --state auth.state.json --json
-```
-`--json` on `discover` itself emits `{file, page, created, discovered:
-{candidates, safe, steps, regions}, next}` (and the same
-`{created:false, error:"exists"}` + exit 1 if the file already exists).
-
-**This is a heuristic starting point, not a verdict.** The region bands are
-coarse (layout proximity only, no semantic grouping), step order follows DOM
-order (not necessarily the order a human would test filters in), and the
-nth-of-type fallback selector is brittle if the DOM shifts. Always review the
-generated config before trusting a run's `--require-steps`/`--require-style`
-gate on it.
-
-## Before / after (two commands)
-
-```bash
-bun run src/cli.ts before <name> --target <url>   # capture the starting point and bless it as baseline <name>
-# ... the change is made ...
-bun run src/cli.ts after <name> --json            # re-check against it; target/viewport/--full-page default from the baseline
-```
-
-`before` is a normal run with `--against baseline:<name> --update-baseline` (re-blessing keeps the replaced version in history); `after` is `--against baseline:<name>` and **never blesses**. Both accept the usual run flags and gates (`--max-mismatch`, `--state`, ...) but set `--against`/`--name` themselves. Ask before running `before` on an existing name: it changes what future checks compare against (undo with `rollback`). For runs that already exist and no baseline, use `compare` below.
-
-## Compare two runs (before / after, no baseline)
-
-If you captured a page before a change and again after it but never approved a baseline, diff the two existing runs:
-
-```bash
-bun run src/cli.ts compare <before-run> <after-run> --name <run> --json
-```
-
-A run is a folder path or a folder name under `--out` (take them from the earlier `--json` payloads' `outDir`). `--name` is needed when the runs share more than one comparison. It diffs the **target** capture of the before run against the after run plus the step screenshots they share, and reports `mismatchPercent`, `heightDelta` / `widthDelta` (**after minus before**), and `stepDiffs[]` (`ok`/`mismatch`/`new`/`missing`). It writes nothing unless `--diff <png>` is given, and the result is not a run (not in the list, trends or `approve`). Gates: `--max-mismatch` and `--max-height-delta` (exit 1). Use the same viewport and `--full-page` on both runs — otherwise only the common top area is compared, which `heightDelta` makes visible. For a lasting before/after, prefer a baseline (below): it survives and gates CI.
-
-## Baseline snapshots (self-regression)
-
-Beyond parity checks (target vs staging/Figma), `vigress` supports **self-regression**:
-bless a known-good run as the approved baseline, then diff future runs against that snapshot.
-
-### Approve a baseline
-
-```bash
-# After a satisfactory run
-bun run src/cli.ts approve <name>              # auto-finds newest run containing <name>
-bun run src/cli.ts approve <name> --run <dir>  # from a specific run dir
-bun run src/cli.ts approve --all               # bless every entry in the newest run
-```
-
-`approve` writes `baselines/manifest.json` (git-tracked; commit it). Artifacts stay in place
-under `out/` — no copying. The approved run dir becomes precious: deleting it breaks the
-baseline until re-approved.
-
-### Use a baseline ref
-
-In a config entry: `"against": "baseline:<name>"` (or `--against baseline:<name>` on the CLI).
-Guards: no manifest entry → exit 2 ("bootstrap with --update-baseline"); artifact files missing →
-exit 1 ("re-approve or run with --update-baseline"); viewport or `--full-page` mismatch vs manifest → exit 2 (run with the same `--full-page` setting the baseline was approved with).
-
-### Bootstrap / `--update-baseline`
-
-```bash
-bun run src/cli.ts --config <page>.fullcheck.json --update-baseline
-```
-
-Runs normally, then approves all results. If a `baseline:<name>` ref has no manifest entry yet,
-that run is a **bootstrap**: diff phase skipped, captured and approved, `bootstrap: true` in the
-result. Second run onward diffs normally. Works in both single-run and batch mode.
-
-> **CI footgun:** `--update-baseline` blesses captures even when a gate trips — the run still exits 1, but the manifest now points at the failing state. Never leave it permanently enabled in CI; use it only for bootstrapping or intentional re-blessing.
-
-### Step-diff verdicts
-
-When a `baseline:` run has approved step shots, each named screenshot step is diffed against
-its counterpart → `stepDiffs[]`:
-
-| Verdict | Condition | Gate impact |
-|---------|-----------|-------------|
-| `ok` | Step in run and manifest, within threshold | none |
-| `mismatch` | Step in run and manifest, over `--max-mismatch` | trips `--max-mismatch` |
-| `new` | Step in run, not in manifest (newly added) | **never gates** |
-| `missing` | Step in manifest, not in run (removed/failed) | trips `--require-steps` |
-
-`mismatch` % counts toward `--max-mismatch`'s worst-of. Adding a step never breaks CI
-until re-approval.
-
-### History and rollback
-
-Approving a name again keeps the version it replaces (newest first, max 10), so "before" is no longer lost.
-
-```bash
-bun run src/cli.ts history <name>             # current + previous versions, with indexes
-bun run src/cli.ts rollback <name> [--to N]   # restore one (default 0 = the previous); the replaced version is kept
-```
-
-`prune <name> [--keep N]` (default 3) forgets older versions without deleting files, which unlocks their run dirs for cleanup. Rollback refuses when the target's files are gone from `out/`. Each kept version's run dir stays manifest-locked; do not delete them by hand. Ask before rolling back: it changes what every future `baseline:` run compares against. To see what changed between versions, use `compare <old-run> <current-run>`.
-
-### Parity → bless → regression
-
-1. Run against staging/Figma to verify parity.
-2. Bless that run: `approve <name>` (or re-run with `--update-baseline`).
-3. Change `against` to `baseline:<name>`. Future runs diff against the approved state.
+| Per-region scoring, noise masks, checklists, exact style (colour/size/spacing) diffs | `references/regions-and-style.md` |
+| Click/fill/assert/screenshot steps, functionality checks, dwell time | `references/steps.md` |
+| A one-page full check config; `init-config` and `discover` | `references/fullcheck-and-discover.md` |
+| `approve`, `baseline:` refs, `--update-baseline`, step-diff verdicts, history/`rollback`/`prune`, `before`/`after`, `compare` | `references/baselines.md` |
+| Page-type checklists (report, table, form, nav) and the known-noise catalog | `PLAYBOOK.md` |
 
 ## Regression workflow
 
@@ -536,8 +198,8 @@ See PLAYBOOK.md for archetype checklists + the known-noise/workarounds catalog.
 
 1. **Determine target + baseline URLs and the archetype.** Inspect the page or ask: is it a report/dashboard, table/list, form, or nav-sidebar?
 2. **Read the matching PLAYBOOK.md archetype section.** Note the suggested region selectors and verify-methods for each aspect you need to check.
-3. **Inspect the live DOM** to resolve per-side selectors (target app may use `data-testid`; baseline may use BEM classes). Identify dynamic elements (timestamps, live counts, date badges) to add to `mask`. Or run `vigress discover <page> --target <url> --against <url>` to generate a starting config from a live DOM crawl instead of inspecting by hand — review its output before relying on it (see "Discover").
-4. **Write a vigress config** with `regions` (one per checklist aspect), `mask` (one per dynamic element), and a `checklist` array tying each aspect to its region name. To make it a **full check**, also add `steps` covering every filter and download (see "Full check") and name the file `<page>.fullcheck.json`. Add `"style": true` on any region where color/spacing is in question (e.g. after a design-system migration) — see "Style diffing".
+3. **Inspect the live DOM** to resolve per-side selectors (target app may use `data-testid`; baseline may use BEM classes). Identify dynamic elements (timestamps, live counts, date badges) to add to `mask`. Or run `vigress discover <page> --target <url> --against <url>` to generate a starting config from a live DOM crawl instead of inspecting by hand — review its output before relying on it (see `references/fullcheck-and-discover.md`).
+4. **Write a vigress config** with `regions` (one per checklist aspect), `mask` (one per dynamic element), and a `checklist` array tying each aspect to its region name. To make it a **full check**, also add `steps` covering every filter and download (see `references/fullcheck-and-discover.md`) and name the file `<page>.fullcheck.json`. Add `"style": true` on any region where color/spacing is in question (e.g. after a design-system migration) — see `references/regions-and-style.md`.
 5. **Run:**
    ```bash
    bun run src/cli.ts --config <file> --state auth.state.json --json
