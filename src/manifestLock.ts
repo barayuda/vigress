@@ -72,10 +72,18 @@ export function withManifestLock<T>(manifestFile: string, fn: () => T, opts: { t
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       const { info, ageMs } = readLock(lock);
+      // The holder released it between our failed create and this read: nothing to judge,
+      // just try to take it. (Treating "gone" as stale and deleting would remove the NEW
+      // holder's lock if it appeared in between, giving two holders and lost updates.)
+      if (ageMs === Infinity) continue;
       if (lockIsStale(info, ageMs, pidAlive, Date.now())) {
-        // Only remove it if it is still the very lock we judged stale.
+        // Delete only if it is still the very lock we judged stale: the same pid and time, or,
+        // for an unreadable one, still unreadable and still old (a new lock would be young).
         const again = readLock(lock);
-        if (again.info?.pid === info?.pid && again.info?.at === info?.at) {
+        const same = info
+          ? again.info?.pid === info.pid && again.info?.at === info.at
+          : again.info === null && again.ageMs > HALF_WRITTEN_GRACE_MS && again.ageMs !== Infinity;
+        if (same) {
           try { unlinkSync(lock); } catch { /* someone else removed it first */ }
         }
         continue;
