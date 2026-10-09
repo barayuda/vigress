@@ -10,7 +10,8 @@ import type { RunResult, Summary, StepDiffVerdict } from "./types";
 export const MANIFEST_VERSION = 1;
 export const MANIFEST_PATH = "baselines/manifest.json";
 
-export interface ManifestEntry {
+// One approved version of a baseline.
+export interface BaselineVersion {
   storage: "local"; // reserved: "remote" (future dashboard artifact store)
   approvedAt: string; // ISO timestamp
   approvedFrom: string; // run dir, relative to repo root (provenance)
@@ -22,6 +23,14 @@ export interface ManifestEntry {
     steps: Record<string, string>; // shot name -> path relative to repo root
   };
 }
+
+// The current baseline plus the versions it replaced (newest first). Additive to the
+// manifest format: an entry without `history` reads exactly as before.
+export interface ManifestEntry extends BaselineVersion {
+  history?: BaselineVersion[];
+}
+
+export const MAX_HISTORY = 10;
 
 export interface Manifest {
   schemaVersion: number;
@@ -76,8 +85,55 @@ export function buildManifestEntry(run: RunResult, runDirRel: string, approvedAt
   };
 }
 
+// Approving a name again keeps the version it replaces in `history` (newest first, at
+// most MAX_HISTORY) so "before" is not lost — unless it is the very same run being
+// re-approved. The history's artifacts stay in place under out/, so their run dirs
+// are manifest-locked like the current one (see referencedRunDirs).
 export function upsertBaseline(manifest: Manifest, name: string, entry: ManifestEntry): Manifest {
-  return { ...manifest, baselines: { ...manifest.baselines, [name]: entry } };
+  let next: ManifestEntry = entry;
+  if (Object.hasOwn(manifest.baselines, name)) {
+    const { history: prevHistory = [], ...prevVersion } = manifest.baselines[name];
+    const isSameRun = (v: BaselineVersion): boolean => v.approvedFrom === entry.approvedFrom && v.artifacts.main === entry.artifacts.main;
+    // The new current version never also sits in history (it can, after a rollback and a
+    // re-approve of the newer run), and re-approving the current run keeps history as is.
+    const kept = prevHistory.filter((v) => !isSameRun(v));
+    const history = isSameRun(prevVersion) ? kept : [prevVersion, ...kept].slice(0, MAX_HISTORY);
+    next = { ...entry, ...(history.length ? { history } : {}) };
+  }
+  return { ...manifest, baselines: { ...manifest.baselines, [name]: next } };
+}
+
+export function versionArtifacts(v: BaselineVersion): string[] {
+  return [...new Set([v.artifacts.main, ...Object.values(v.artifacts.steps)])];
+}
+
+// Make a previous version (index into `history`, 0 = the one just before) the current
+// baseline again. The version it replaces goes into history, so a rollback can itself
+// be undone. Refuses when the target's files are gone — rolling back onto missing
+// artifacts would leave a baseline that fails at run time.
+export function rollbackBaseline(
+  manifest: Manifest,
+  name: string,
+  to: number,
+  exists: (relPath: string) => boolean,
+): { ok: true; manifest: Manifest; restored: BaselineVersion } | { ok: false; message: string } {
+  if (!Object.hasOwn(manifest.baselines, name)) return { ok: false, message: `no approved baseline '${name}'` };
+  const { history = [], ...current } = manifest.baselines[name];
+  if (!history.length) return { ok: false, message: `baseline '${name}' has no previous version to roll back to` };
+  if (!Number.isInteger(to) || to < 0 || to >= history.length) {
+    return { ok: false, message: `version ${to} does not exist — '${name}' has ${history.length} previous version(s)` };
+  }
+  const target = history[to];
+  const missing = versionArtifacts(target).filter((p) => !exists(p));
+  if (missing.length) {
+    return { ok: false, message: `cannot roll back '${name}': ${missing.join(", ")} no longer exist (was the run dir deleted?)` };
+  }
+  const nextHistory = [current, ...history.filter((_, i) => i !== to)].slice(0, MAX_HISTORY);
+  return {
+    ok: true,
+    manifest: { ...manifest, baselines: { ...manifest.baselines, [name]: { ...target, history: nextHistory } } },
+    restored: target,
+  };
 }
 
 // Summaries older than this don't record how they were captured (fullPage), so

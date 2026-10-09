@@ -210,6 +210,7 @@ bun run src/cli.ts --config <file.json> [options]
 - `discover <page>` — crawls the live `--target` DOM (read-only) and writes a run-ready `<page>.fullcheck.json`.
 - `approve <name> [--run <dir>]` — blesses a run's target capture and named step shots into `baselines/manifest.json`. Auto-finds the newest run containing `<name>` unless `--run` is given.
 - `approve --all [--run <dir>]` — blesses every entry in the run (for batch configs).
+- `history <name>` / `rollback <name> [--to <index>]` — list the earlier approved versions of a baseline, or restore one; see [Baseline history](#baseline-history-and-rollback).
 - `compare <before-run> <after-run>` — diffs the same-named capture (and step screenshots) of two **existing** runs, no baseline needed; see [Comparing two runs](#comparing-two-existing-runs-before--after).
 - `dashboard [--port 4600] [--out out]` — starts the local artifact-manager dashboard (see [Dashboard](#dashboard)).
 
@@ -333,6 +334,20 @@ Paths are relative to the repo root. The manifest is committed to git; `out/`
 remains git-ignored. **Baselines are per-machine** until remote storage is
 available — a fresh clone or CI runner must bootstrap with `--update-baseline`.
 
+### Baseline history and rollback
+
+Approving a name again no longer loses the old baseline: the version it replaces is kept in the manifest entry's `history` (newest first, at most 10). Re-approving the very same run adds nothing. The field is additive: a manifest without it reads exactly as before.
+
+```bash
+bun run src/cli.ts history contact          # current + previous versions, with indexes and "(files missing)" flags
+bun run src/cli.ts rollback contact         # restore the previous version (index 0)
+bun run src/cli.ts rollback contact --to 2  # restore an older one
+```
+
+`rollback` puts the version it replaces into history, so a rollback can itself be rolled back. It refuses when the target version's files are gone from `out/`, since the baseline would then fail at run time. To see what changed between versions: `vigress compare <old-run> <current-run>` (`approvedFrom` in `history` is the run dir).
+
+Every kept version's run dir is **manifest-locked** just like the current one (the dashboard cannot delete it, Cleanup skips it); deleting one by hand makes that version un-restorable. The dashboard's **Baselines** table shows a `history` column with **Compare to previous** (fills the Compare bar) and **Rollback** (disabled when the previous version's files are gone); `POST /api/baselines/<name>/rollback` with `{ "to": <index> }` is behind the same write guard as approve.
+
 ### Step diffing
 
 When a `baseline:` run has approved step shots, `vigress` diffs each named
@@ -397,7 +412,8 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 | `GET` | `/api/configs` | `{ configs, baselines }` — the `*.fullcheck.json` files in the repo root (plain file names only) and the approved baseline names. These are the only things the page can run. |
 | `GET` | `/api/jobs` | `{ job, runDir }` — the latest run started from the page (`state`: `running`/`done`/`failed`, `exitCode`, `error`, last output lines) and, once it produced one, the run dir name under `out/`. |
 | `POST` | `/api/jobs` | Starts a run: body `{ "config": "<name>.fullcheck.json" }` **or** `{ "baseline": "<name>" }` (exactly one). `202` + `{ job }`; `400` for a bad name (paths, traversal, URLs), both/neither field, or a baseline without an http(s) source URL; `404` if the file or baseline does not exist; `409` while another run is going. |
-| `GET` | `/api/baselines` | JSON array of approved baselines from `baselines/manifest.json` (sorted by name): `name`, `approvedAt`, `approvedFrom`, `viewport`, `sourceUrl`, `fullPage`, `stepCount`, `missing` (artifact paths no longer on disk). Re-read per request. |
+| `GET` | `/api/baselines` | JSON array of approved baselines from `baselines/manifest.json` (sorted by name): `name`, `approvedAt`, `approvedFrom`, `viewport`, `sourceUrl`, `fullPage`, `stepCount`, `missing` (artifact paths no longer on disk), `versions` (previous versions, newest first, each with its own `missing`). Re-read per request. |
+| `POST` | `/api/baselines/<name>/rollback` | Restores a previous version: body `{ "to": <index> }` (default 0). The replaced version goes into history. `400` for an unknown name, no previous version, an index out of range, or files that no longer exist; `500` if the manifest is unreadable (never replaced). |
 | `GET` | `/files/<run>/<path>` | Serves an artifact from `out/<run>/`. Path-traversal guarded (lexical + realpath symlink check); dot-prefixed path segments (e.g. `.keep`, `.approved`) are refused with `403`; returns `403` on any escape attempt. |
 | `POST` | `/api/runs/<dir>/keep` | Toggles the `.keep` marker file in the run dir. Returns `{ keep: true|false }`. |
 | `DELETE` | `/api/runs/<dir>` | Deletes the run dir. Returns `{ "deleted": "<dir>" }` on success; `403` + `{ lockedBy }` if the dir is referenced by `baselines/manifest.json`; `404` if the dir has already vanished. |

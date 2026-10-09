@@ -183,6 +183,28 @@ describe("isWriteAllowed", () => {
   });
 });
 
+describe("baseline history in the dashboard", () => {
+  const e = (dir: string, at: string) => buildManifestEntry(run({ shots: [{ name: "s", path: "page.s.png" }] }), `out/${dir}`, at);
+  const m = upsertBaseline(upsertBaseline(emptyManifest(), "page", e("old", "2026-10-01T00:00:00Z")), "page", e("new", "2026-10-02T00:00:00Z"));
+
+  it("locks the run dirs of previous versions too, so cleanup cannot delete a rollback target", () => {
+    const refs = referencedRunDirs(m);
+    expect(refs.get("out/new")).toEqual(["page"]);
+    expect(refs.get("out/old")).toEqual(["page"]);
+  });
+  it("lists previous versions (newest first) with their own missing artifacts", () => {
+    const [b] = buildBaselineIndex(m, (p) => !p.startsWith("out/old/page.s"));
+    expect(b.missing).toEqual([]);
+    expect(b.versions).toEqual([
+      { index: 0, approvedAt: "2026-10-01T00:00:00Z", approvedFrom: "out/old", sourceUrl: "https://app.test/page", fullPage: false, missing: ["out/old/page.s.png"] },
+    ]);
+  });
+  it("has no versions for a baseline approved once", () => {
+    const [b] = buildBaselineIndex(upsertBaseline(emptyManifest(), "page", e("a", "t")), () => true);
+    expect(b.versions).toEqual([]);
+  });
+});
+
 describe("buildBaselineIndex", () => {
   const manifestOf = (fullPage?: true) => {
     let m = upsertBaseline(emptyManifest(), "page", buildManifestEntry(run({ fullPage, shots: [{ name: "01-open", path: "page.01-open.png" }] }), "out/a", "2026-07-06T00:00:00Z"));
