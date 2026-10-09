@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   MANIFEST_VERSION, emptyManifest, parseManifest, parseBaselineRef,
   buildManifestEntry, upsertBaseline, resolveBaselineArtifacts,
-  pickNewestRun, stepDiffVerdict, approveRuns, type RunDirCandidate,
+  pickNewestRun, stepDiffVerdict, approveRuns, rollbackBaseline, MAX_HISTORY, type RunDirCandidate,
 } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -199,5 +199,76 @@ describe("approveRuns", () => {
   });
   it("fails on a summary with no runs for every run", () => {
     expect(approveRuns(emptyManifest(), sum([]), "out/x", null, has, at).ok).toBe(false);
+  });
+});
+
+describe("baseline history", () => {
+  const ver = (dir: string, at: string) => buildManifestEntry(run({ shots: [{ name: "s", path: "page.s.png" }] }), `out/${dir}`, at);
+  const approve = (m: ReturnType<typeof emptyManifest>, dir: string, at: string) => upsertBaseline(m, "page", ver(dir, at));
+  const allThere = () => true;
+
+  it("re-approving keeps the previous version in history, newest first", () => {
+    let m = approve(emptyManifest(), "a", "t1");
+    expect(m.baselines.page.history).toBeUndefined();
+    m = approve(m, "b", "t2");
+    m = approve(m, "c", "t3");
+    expect(m.baselines.page.approvedFrom).toBe("out/c");
+    expect(m.baselines.page.history!.map((h) => h.approvedFrom)).toEqual(["out/b", "out/a"]);
+    expect("history" in m.baselines.page.history![0]).toBe(false); // versions do not nest
+  });
+  it("re-approving the very same run does not add a duplicate version", () => {
+    let m = approve(emptyManifest(), "a", "t1");
+    m = approve(m, "a", "t2");
+    expect(m.baselines.page.history).toBeUndefined();
+    expect(m.baselines.page.approvedAt).toBe("t2");
+  });
+  it("keeps at most MAX_HISTORY versions, dropping the oldest", () => {
+    let m = emptyManifest();
+    for (let i = 0; i < MAX_HISTORY + 4; i++) m = approve(m, "r" + i, "t" + i);
+    expect(m.baselines.page.history).toHaveLength(MAX_HISTORY);
+    expect(m.baselines.page.history![0].approvedFrom).toBe("out/r" + (MAX_HISTORY + 2));
+  });
+  it("does not mutate the input manifest", () => {
+    const m1 = approve(emptyManifest(), "a", "t1");
+    approve(m1, "b", "t2");
+    expect(m1.baselines.page.history).toBeUndefined();
+  });
+
+  describe("rollbackBaseline", () => {
+    const three = () => approve(approve(approve(emptyManifest(), "a", "t1"), "b", "t2"), "c", "t3");
+    it("promotes the previous version and pushes the current one into history (so it is undoable)", () => {
+      const r = rollbackBaseline(three(), "page", 0, allThere);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.manifest.baselines.page.approvedFrom).toBe("out/b");
+      expect(r.manifest.baselines.page.history!.map((h) => h.approvedFrom)).toEqual(["out/c", "out/a"]);
+      expect(r.restored.approvedFrom).toBe("out/b");
+      const back = rollbackBaseline(r.manifest, "page", 0, allThere);
+      expect(back.ok && back.manifest.baselines.page.approvedFrom).toBe("out/c");
+    });
+    it("can restore an older version by index", () => {
+      const r = rollbackBaseline(three(), "page", 1, allThere);
+      expect(r.ok && r.manifest.baselines.page.approvedFrom).toBe("out/a");
+      expect(r.ok && r.manifest.baselines.page.history!.map((h) => h.approvedFrom)).toEqual(["out/c", "out/b"]);
+    });
+    it("refuses an unknown name, no history, or an index out of range", () => {
+      expect(rollbackBaseline(three(), "nope", 0, allThere).ok).toBe(false);
+      const none = rollbackBaseline(approve(emptyManifest(), "a", "t1"), "page", 0, allThere);
+      expect(none.ok).toBe(false);
+      if (!none.ok) expect(none.message).toMatch(/no previous version/);
+      const oob = rollbackBaseline(three(), "page", 5, allThere);
+      expect(oob.ok).toBe(false);
+      if (!oob.ok) expect(oob.message).toMatch(/version 5.*has 2/);
+      expect(rollbackBaseline(three(), "page", -1, allThere).ok).toBe(false);
+      expect(rollbackBaseline(three(), "page", 0.5, allThere).ok).toBe(false);
+    });
+    it("refuses when the target version's files are gone from disk, naming them", () => {
+      const r = rollbackBaseline(three(), "page", 0, (p) => !p.startsWith("out/b/"));
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.message).toMatch(/out\/b\/page\.target\.png/);
+    });
+    it("treats __proto__ as an unknown name", () => {
+      expect(rollbackBaseline(three(), "__proto__", 0, allThere).ok).toBe(false);
+    });
   });
 });

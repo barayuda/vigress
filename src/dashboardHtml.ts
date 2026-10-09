@@ -394,6 +394,46 @@ async function loadTrends() {
   root.appendChild(table);
 }
 
+// Older approved versions: compare with the current one, or roll back to the one just before.
+// The server refuses a rollback onto files that no longer exist, and the replaced version is
+// kept, so a rollback can be rolled back too.
+function historyCell(b) {
+  const td = el("td");
+  if (!b.versions.length) { td.textContent = "—"; return td; }
+  const v = b.versions[0];
+  const dirOf = (rel) => rel.split("/").pop();
+  td.title = b.versions.map((x) => "[" + x.index + "] " + new Date(x.approvedAt).toLocaleString() + " from " + x.approvedFrom).join(" | ");
+  td.appendChild(el("span", null, b.versions.length + " previous "));
+  const cmp = el("button", null, "Compare to previous");
+  cmp.onclick = () => {
+    const a = dirOf(v.approvedFrom), c = dirOf(b.approvedFrom);
+    if (!cmpRuns.some((r) => r.dirName === a) || !cmpRuns.some((r) => r.dirName === c)) { alert("Those runs are no longer in the run list."); return; }
+    cmpEl("cmp-a").value = a;
+    cmpEl("cmp-b").value = c;
+    fillCmpNames();
+    cmpEl("cmp-name").value = b.name;
+    cmpEl("cmp-go").click();
+    cmpEl("cmp-a").scrollIntoView({ block: "center" });
+  };
+  td.appendChild(cmp);
+  const rb = el("button", "danger", "Rollback");
+  if (v.missing.length) { rb.disabled = true; rb.title = "its files are gone: " + v.missing.join(", "); }
+  rb.onclick = async () => {
+    if (!confirm("Roll back '" + b.name + "' to the version approved " + new Date(v.approvedAt).toLocaleString() + " from " + v.approvedFrom +
+      "? The current baseline moves into history, so you can roll back again to undo.")) return;
+    const res = await fetch("/api/baselines/" + encodeURIComponent(b.name) + "/rollback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ to: v.index }),
+    });
+    const body = await res.json();
+    if (!res.ok) { alert("Rollback refused: " + body.error); return; }
+    load();
+  };
+  td.appendChild(rb);
+  return td;
+}
+
 async function loadBaselines() {
   const list = await (await fetch("/api/baselines")).json();
   const root = document.getElementById("baselines");
@@ -401,7 +441,7 @@ async function loadBaselines() {
   if (!list.length) { root.appendChild(el("div", "meta", "No approved baselines yet — run vigress approve.")); return; }
   const table = el("table", "bl");
   const head = el("tr");
-  for (const h of ["name", "approved", "viewport", "capture", "steps", "source", "status"]) head.appendChild(el("th", null, h));
+  for (const h of ["name", "approved", "viewport", "capture", "steps", "source", "status", "history"]) head.appendChild(el("th", null, h));
   table.appendChild(head);
   for (const b of list) {
     const tr = el("tr");
@@ -414,6 +454,7 @@ async function loadBaselines() {
     tr.appendChild(b.missing.length
       ? el("td", "bad", b.missing.length + " artifact(s) missing")
       : el("td", null, "ok"));
+    tr.appendChild(historyCell(b));
     table.appendChild(tr);
   }
   root.appendChild(table);

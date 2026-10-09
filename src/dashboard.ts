@@ -1,5 +1,5 @@
 import { dirname, normalize, join, isAbsolute } from "node:path";
-import type { Manifest } from "./baselines";
+import { versionArtifacts, type Manifest } from "./baselines";
 import type { RunResult, Summary, StepDiffVerdict, RegionVerdict, GitInfo } from "./types";
 import { sanitizeGitInfo } from "./gitinfo";
 
@@ -44,9 +44,13 @@ export function referencedRunDirs(manifest: Manifest | null): Map<string, string
     refs.set(dir, list);
   };
   for (const [name, entry] of Object.entries(manifest.baselines)) {
-    add(entry.approvedFrom, name);
-    add(dirname(entry.artifacts.main), name);
-    for (const p of Object.values(entry.artifacts.steps)) add(dirname(p), name);
+    // The current version and every kept previous version: a rollback target's run dir
+    // must not be deletable either.
+    for (const v of [entry, ...(entry.history ?? [])]) {
+      add(v.approvedFrom, name);
+      add(dirname(v.artifacts.main), name);
+      for (const p of Object.values(v.artifacts.steps)) add(dirname(p), name);
+    }
   }
   return refs;
 }
@@ -149,6 +153,7 @@ export interface BaselineIndexEntry {
   fullPage: boolean; // absent on the manifest entry = viewport capture
   stepCount: number;
   missing: string[]; // artifact paths (repo-root-relative) not found on disk
+  versions: { index: number; approvedAt: string; approvedFrom: string; sourceUrl: string; fullPage: boolean; missing: string[] }[]; // previous versions, newest first
 }
 
 // One row per approved baseline. `exists` is injected (repo-root-relative path
@@ -168,6 +173,14 @@ export function buildBaselineIndex(manifest: Manifest | null, exists: (relPath: 
         fullPage: e.fullPage === true,
         stepCount: Object.keys(e.artifacts.steps).length,
         missing: [...new Set(artifacts)].filter((p) => !exists(p)),
+        versions: (e.history ?? []).map((v, index) => ({
+          index,
+          approvedAt: v.approvedAt,
+          approvedFrom: v.approvedFrom,
+          sourceUrl: v.sourceUrl,
+          fullPage: v.fullPage === true,
+          missing: versionArtifacts(v).filter((p) => !exists(p)),
+        })),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

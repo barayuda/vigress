@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, wr
 import { join, relative, basename } from "node:path";
 import { fileUrl, buildRunIndex, buildRunDetail, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
-import { parseManifest, emptyManifest, writeManifest, approveRuns, type Manifest } from "./baselines";
+import { parseManifest, emptyManifest, writeManifest, approveRuns, rollbackBaseline, type Manifest } from "./baselines";
 import type { Summary } from "./types";
 import { compareRuns } from "./compareRuns";
 import { commonRunNames } from "./compare";
@@ -95,6 +95,16 @@ const CLI_PATH = join(import.meta.dir, "cli.ts");
 export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
   // The latest run-a-config job (running or finished); at most one runs at a time.
   let job: Job | null = null;
+
+  // For routes that rewrite the manifest: a corrupt manifest must not be silently replaced
+  // by an empty one, so it is reported (500) instead.
+  function manifestForWrite(): Manifest | Response {
+    try {
+      return existsSync(o.manifestFile) ? parseManifest(readFileSync(o.manifestFile, "utf8")) : emptyManifest();
+    } catch (e) {
+      return json({ error: `manifest unreadable: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    }
+  }
 
   const configNames = (): string[] =>
     listRunnableConfigs(readdirSync(o.rootDir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name));
@@ -316,19 +326,36 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         }
         const which = body.all === true ? null : typeof body.name === "string" && body.name ? body.name : undefined;
         if (which === undefined) return json({ error: 'expected {"name": "<run>"} or {"all": true}' }, 400);
-        let manifest: Manifest;
-        try {
-          // A corrupt manifest must not be silently replaced by an empty one.
-          manifest = existsSync(o.manifestFile) ? parseManifest(readFileSync(o.manifestFile, "utf8")) : emptyManifest();
-        } catch (e) {
-          return json({ error: `manifest unreadable: ${e instanceof Error ? e.message : String(e)}` }, 500);
-        }
+        const manifest = manifestForWrite();
+        if (manifest instanceof Response) return manifest;
         const runDirRel = relative(o.rootDir, abs);
         const res = approveRuns(manifest, summary, runDirRel, which, (t) => existsSync(join(abs, t)), new Date().toISOString());
         if (!res.ok) return json({ error: res.message }, 400);
         writeManifest(o.manifestFile, res.manifest);
         writeFileSync(join(abs, ".approved"), res.approved.map((r) => r.name).join("\n") + "\n");
         return json({ approved: res.approved.map((r) => r.name), from: runDirRel });
+      }
+
+      // POST /api/baselines/<name>/rollback — body {to?} (index into the previous versions,
+      // default 0 = the one just before). The replaced version goes into history, so it can be undone.
+      if (req.method === "POST" && parts[0] === "api" && parts[1] === "baselines" && parts[3] === "rollback" && parts.length === 4) {
+        const name = safeDecode(parts[2]);
+        if (!name) return new Response("forbidden", { status: 403 });
+        let body: { to?: unknown } = {};
+        try {
+          const text = await req.text();
+          if (text.trim()) body = JSON.parse(text) as typeof body;
+        } catch {
+          return json({ error: "expected a JSON body" }, 400);
+        }
+        const to = body.to === undefined ? 0 : body.to;
+        if (typeof to !== "number") return json({ error: '"to" must be a number' }, 400);
+        const manifest = manifestForWrite();
+        if (manifest instanceof Response) return manifest;
+        const res = rollbackBaseline(manifest, name, to, (p) => existsSync(join(o.rootDir, p)));
+        if (!res.ok) return json({ error: res.message }, 400);
+        writeManifest(o.manifestFile, res.manifest);
+        return json({ rolledBack: name, to: res.restored.approvedAt, from: res.restored.approvedFrom });
       }
 
       // DELETE /api/runs/<dirName> — server-side lock re-check, UI is advisory.

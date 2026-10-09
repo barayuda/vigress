@@ -32,6 +32,10 @@ describe("buildDashboardHtml", () => {
     expect(html).toContain('"/api/jobs"');
     expect(html).toContain('"/api/configs"');
   });
+  it("wires baseline rollback and compare-with-previous", () => {
+    expect(html).toContain("/rollback");
+    expect(html).toContain("Rollback");
+  });
   it("wires the approve action", () => {
     expect(html).toContain("/approve");
   });
