@@ -1,6 +1,6 @@
 # vigress reference — baselines, history, before/after and compare
 
-Read this when you approve or re-check a baseline, roll back or prune its versions, do a before/after check, or diff two existing runs. Part of the `vigress` skill; the core rules live in `../SKILL.md`.
+Read this when you approve or re-check a baseline, roll back or prune its versions, do a before/after check, diff two existing runs, or get a step review prompt from the dashboard. Part of the `vigress` skill; the core rules live in `../SKILL.md`.
 
 ## Before / after (two commands)
 
@@ -21,6 +21,17 @@ bun run src/cli.ts compare <before-run> <after-run> --name <run> --json
 ```
 
 A run is a folder path or a folder name under `--out` (take them from the earlier `--json` payloads' `outDir`). `--name` is needed when the runs share more than one comparison. It diffs the **target** capture of the before run against the after run plus the step screenshots they share, and reports `mismatchPercent`, `heightDelta` / `widthDelta` (**after minus before**), and `stepDiffs[]` (`ok`/`mismatch`/`new`/`missing`). It writes nothing unless `--diff <png>` is given, and the result is not a run (not in the list, trends or `approve`). Gates: `--max-mismatch` and `--max-height-delta` (exit 1). Use the same viewport and `--full-page` on both runs — otherwise only the common top area is compared, which `heightDelta` makes visible. For a lasting before/after, prefer a baseline (below): it survives and gates CI.
+
+## Step review prompt (from the dashboard)
+
+After a before/after check the human may review the changed step screenshots in the dashboard, mark each one "keep before" or "keep after", and paste the prompt it builds. When you get such a prompt:
+
+- **FIX** steps (kept as before): the after screenshot is a regression. Change the app code so the step looks like its `before` image again (a step "missing from the after run" must be captured again). Read the `before`, `after` and (when given) `diff` PNGs first.
+- **KEEP** steps (kept as after): the change is intended. Do not undo it while fixing the others.
+- Re-run with the exact command under "How to check your work" (it already has `--json`); in compare mode, then run the `compare` line with the new run's `outDir` from that JSON. Read `stepDiffs[]` for the steps named in the prompt.
+- Done means what the prompt says: every FIX step's `mismatchPercent` at or below the given value, every KEEP step still like its after screenshot.
+- **Never** run `approve`, `--update-baseline` or `before` to make the check pass. Stop and report what you changed; the human approves.
+- If the prompt has no re-run command, re-create the after run the way it was made, or ask.
 
 ## Baseline snapshots (self-regression)
 

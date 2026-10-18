@@ -53,6 +53,24 @@ export function buildDashboardHtml(): string {
   .viewer .slider{position:relative}
   .viewer .slider .top{position:absolute;top:0;left:0}
   .viewer input[type=range]{width:100%;margin:6px 0 0}
+  .steprev{margin:8px 0 12px;padding-top:8px;border-top:1px solid #ebf0f1}
+  .steprev-bar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+  .steprev-bar label{display:flex;gap:5px;align-items:center;color:#656f80}
+  .steprev-bar input{font:inherit;padding:3px 6px;border:1px solid #dcdfe4;border-radius:5px;width:70px}
+  .stepcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:10px;margin:8px 0}
+  .stepcard{border:1px solid #dcdfe4;border-radius:6px;padding:8px}
+  .stepcard .thumbs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:6px;align-items:start}
+  .stepcard .pick,.stepcard .thumb{box-sizing:border-box;margin:0;padding:4px;border:2px solid #ebf0f1;border-radius:5px;background:#fff;text-align:left;display:block;width:100%}
+  .stepcard .pick:not(:disabled):hover{border-color:#93b4f5}
+  .stepcard .pick.on{border-color:#1a56db;background:#e8f0fe}
+  .stepcard .pick:disabled{opacity:1;cursor:default}
+  .stepcard img{width:100%;max-height:160px;object-fit:cover;object-position:top left;display:block;border:1px solid #ebf0f1}
+  .stepcard .noimg{height:60px;display:flex;align-items:center;justify-content:center;color:#656f80;font-size:11px;background:#f8fafc}
+  .stepcard .cap{display:block;color:#656f80;font-size:11px;margin-top:2px}
+  .stepcard .pick.on .cap{color:#1a56db;font-weight:600}
+  .steprev-foot{margin:6px 0}
+  .promptbox textarea{width:100%;box-sizing:border-box;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;padding:8px;border:1px solid #dcdfe4;border-radius:5px}
+  .promptrow{display:flex;gap:10px;align-items:center;margin:4px 0}
   .runbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 24px 0;font-size:13px}
   .runbar select{font:inherit;padding:5px 8px;border:1px solid #dcdfe4;border-radius:5px;max-width:320px}
   .runbar .bad{color:#b42318}

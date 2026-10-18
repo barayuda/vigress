@@ -135,6 +135,9 @@ checklist:[{aspect,region,verdict,workaround}] }] }` with absolute paths.
 - `stepDiffs[]` is populated only for `baseline:` runs with approved step shots.
 - `invocation` is how the run was made (absolute `cwd` plus the raw `argv`); `baselineRef` names the approved baseline version a `baseline:` run diffed against (absent on bootstrap runs).
 - `--quiet` suppresses the log lines.
+- A pasted "vigress before/after review" prompt (built by the dashboard) lists FIX steps
+  (make them match before again) and KEEP steps (do not undo). Re-run with its exact
+  command, and never approve or re-bless to pass it; see `references/baselines.md`.
 
 ### Gates and exit codes
 
@@ -191,7 +194,7 @@ These live next to this file in `references/`; each starts with when to read it.
 | Per-region scoring, noise masks, checklists, exact style (colour/size/spacing) diffs | `references/regions-and-style.md` |
 | Click/fill/assert/screenshot steps, functionality checks, dwell time | `references/steps.md` |
 | A one-page full check config; `init-config` and `discover` | `references/fullcheck-and-discover.md` |
-| `approve`, `baseline:` refs, `--update-baseline`, step-diff verdicts, history/`rollback`/`prune`, `before`/`after`, `compare` | `references/baselines.md` |
+| `approve`, `baseline:` refs, `--update-baseline`, step-diff verdicts, history/`rollback`/`prune`, `before`/`after`, `compare`, acting on a dashboard step review prompt (FIX / KEEP steps) | `references/baselines.md` |
 | Page-type checklists (report, table, form, nav) and the known-noise catalog | `PLAYBOOK.md` |
 
 ## Regression workflow

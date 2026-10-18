@@ -129,3 +129,10 @@ The flow (approve, `baseline:` refs, `--update-baseline`, step-diff verdicts and
 the CI warning) lives in one place: **`references/baselines.md`** (in this skill folder). This
 playbook only adds the archetype checklists above and the noise catalog; use
 those regions and masks in the regression config too.
+
+**Reviewing step screenshots after a change.** Run the before/after check, then
+open the dashboard (a human runs it). For each changed step screenshot, click the
+side to keep: before (a regression, the agent must fix the app) or after (intended,
+the agent must keep it). Copy the prompt, paste it into the agent working in the
+app repo, and let it fix and re-run. The prompt tells it not to approve anything;
+review its result and approve it yourself.

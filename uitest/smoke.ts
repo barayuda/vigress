@@ -3,14 +3,16 @@
 // Unit tests (`bun test`) cover the pure logic only. This drives the REAL dashboard with a
 // REAL browser against a throwaway repo, so the page script and its races stay covered:
 // filters, the Cleanup safety confirmation, Details surviving an auto-refresh, approve,
-// rollback, compare, trends, git links, and running a saved config / re-checking a baseline.
+// rollback, compare, trends, git links, running a saved config / re-checking a baseline, and
+// the step review (keep before / keep after cards and the copy-prompt box).
 // It needs an installed browser (VIGRESS_BROWSER, default chrome) and takes about a minute.
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PNG } from "pngjs";
+import type { Page } from "playwright";
 import { launchBrowser } from "../src/browser";
-import { buildManifestEntry, emptyManifest, upsertBaseline, writeManifest } from "../src/baselines";
+import { buildManifestEntry, emptyManifest, parseManifest, upsertBaseline, writeManifest } from "../src/baselines";
 import type { RunResult } from "../src/types";
 
 const ROOT = join(import.meta.dir, "..");
@@ -25,9 +27,9 @@ const repo = mkdtempSync(join(tmpdir(), "vigress-ui-"));
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 let seeded = 0;
 
-function png(): Buffer {
+function png(rgb: [number, number, number] = [120, 120, 220]): Buffer {
   const p = new PNG({ width: 40, height: 30 });
-  for (let i = 0; i < 40 * 30; i++) { p.data[i * 4] = 120; p.data[i * 4 + 1] = 120; p.data[i * 4 + 2] = 220; p.data[i * 4 + 3] = 255; }
+  for (let i = 0; i < 40 * 30; i++) { p.data[i * 4] = rgb[0]; p.data[i * 4 + 1] = rgb[1]; p.data[i * 4 + 2] = rgb[2]; p.data[i * 4 + 3] = 255; }
   return PNG.sync.write(p);
 }
 
@@ -63,6 +65,51 @@ let manifest = upsertBaseline(emptyManifest(), "contact", entry("2026-10-01_a", 
 manifest = upsertBaseline(manifest, "contact", entry("2026-10-03_c", "contact", "2026-10-03T00:00:00Z"));
 writeManifest(join(repo, "baselines", "manifest.json"), manifest);
 
+// ---- step review: an approved "flow" baseline with three step shots, and a run against it --
+// s1 changed (3%, but verdict "ok": cards go by mismatchPercent, not verdict), s2 barely (0.05%,
+// under the default hide-below of 0.1%), s3 is missing from the after run. Seeded late, so the
+// earlier checks see the run list they expect.
+const FLOW_BASE = "2026-10-07_flowbase";
+const FLOW_AFTER = "2026-10-08_flowafter";
+const FLOW_APPROVED_AT = "2026-10-07T12:00:00.000Z";
+const DO_NOT_APPROVE = "Do not run `vigress approve`, `--update-baseline` or `vigress before`. Stop and tell me what you changed; I will approve it myself.";
+const LOCAL_ONLY = "Copy prompt is available only on the machine running the dashboard.";
+const REBUILD_HINT = "Changing a pick or the hide-below value rebuilds this text and discards edits.";
+
+function seedFlow(): void {
+  const write = (dir: string, files: Record<string, Buffer>, run: RunResult, when: Date): void => {
+    const d = join(repo, "out", dir);
+    mkdirSync(d, { recursive: true });
+    for (const [f, buf] of Object.entries(files)) writeFileSync(join(d, f), buf);
+    writeFileSync(join(d, "summary.json"), JSON.stringify({
+      schemaVersion: 11, outDir: d, reportHtml: "report.html", summaryJson: "summary.json",
+      invocation: { cwd: repo, argv: ["after", "flow"] }, runs: [run],
+    }));
+    utimesSync(d, when, when);
+  };
+  const shots = (names: string[]) => names.map((n) => ({ name: n, path: `flow.${n}.png` }));
+  const common = { name: "flow", viewport: { width: 1440, height: 900 }, target: "flow.target.png", targetUrl: "https://app.test/flow", regions: [], checklist: [], mode: "steps" as const, steps: [] };
+  const baseRun: RunResult = { ...common, baselineType: "url", shots: shots(["s1", "s2", "s3"]), stepDiffs: [] };
+  write(FLOW_BASE, { "flow.target.png": png(), "flow.s1.png": png(), "flow.s2.png": png(), "flow.s3.png": png() }, baseRun, new Date(2026, 9, 7, 12));
+  const afterRun: RunResult = {
+    ...common, baselineType: "baseline", mismatchPixels: 0, mismatchPercent: 0, baseline: "flow.baseline.png", diff: "flow.diff.png",
+    shots: shots(["s1", "s2"]),
+    stepDiffs: [
+      { name: "s1", mismatchPercent: 3, diff: "flow.s1.diff.png", verdict: "ok" },
+      { name: "s2", mismatchPercent: 0.05, diff: "flow.s2.diff.png", verdict: "ok" },
+      { name: "s3", mismatchPercent: 0, verdict: "missing" },
+    ],
+    baselineRef: { name: "flow", approvedAt: FLOW_APPROVED_AT },
+  };
+  write(FLOW_AFTER, {
+    "flow.target.png": png(), "flow.baseline.png": png(), "flow.diff.png": png(),
+    "flow.s1.png": png([220, 60, 60]), "flow.s2.png": png(), "flow.s1.diff.png": png([255, 0, 255]), "flow.s2.diff.png": png(),
+  }, afterRun, new Date(2026, 9, 8, 12));
+  // The dashboard has changed the manifest by now (rollbacks, approvals): add to what is there.
+  const file = join(repo, "baselines", "manifest.json");
+  writeManifest(file, upsertBaseline(parseManifest(readFileSync(file, "utf8")), "flow", buildManifestEntry(baseRun, `out/${FLOW_BASE}`, FLOW_APPROVED_AT)));
+}
+
 // ---- two tiny pages for the "run a saved config" part ---------------------------
 const pages = Bun.serve({
   port: 0,
@@ -77,11 +124,15 @@ const site = `http://127.0.0.1:${pages.port}`;
 writeFileSync(join(repo, "t.fullcheck.json"), JSON.stringify([{ name: "t", target: `${site}/a.html`, against: `${site}/c.html`, video: false, steps: [] }]));
 
 // ---- the real dashboard ------------------------------------------------------------
+const WRITER = "writer@example.com";
 const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
 const port = probe.port;
 probe.stop(true);
 const dash = Bun.spawn([process.execPath, join(ROOT, "src/cli.ts"), "dashboard", "--port", String(port), "--out", "out"], {
-  cwd: repo, stdout: "ignore", stderr: "inherit", env: { ...process.env, VIGRESS_BROWSER: process.env.VIGRESS_BROWSER ?? "chrome" },
+  cwd: repo, stdout: "ignore", stderr: "inherit",
+  // WRITER passes the write guard over "tailscale serve", so the step-prompt route's own
+  // local-only refusal is what answers it.
+  env: { ...process.env, VIGRESS_BROWSER: process.env.VIGRESS_BROWSER ?? "chrome", VIGRESS_DASHBOARD_WRITERS: WRITER },
 });
 const base = `http://127.0.0.1:${port}`;
 
@@ -98,12 +149,18 @@ async function main(): Promise<void> {
   const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1300, height: 900 } });
   const problems: string[] = [];
-  page.on("pageerror", (e) => problems.push("pageerror: " + String(e)));
-  // Refusals this test provokes on purpose (a locked delete: 403, a second run: 409) are not problems.
-  page.on("response", (r) => {
-    const deliberate = r.request().method() !== "GET" && (r.status() === 403 || r.status() === 409);
-    if (r.status() >= 400 && !deliberate && !r.url().includes("favicon")) problems.push(`${r.status()} ${r.url().replace(base, "")}`);
-  });
+  // Failures provoked on purpose later on, as "<status> <path>".
+  const expected = new Set<string>();
+  const watch = (p: Page): void => {
+    p.on("pageerror", (e) => problems.push("pageerror: " + String(e)));
+    // Refusals this test provokes on purpose (a locked delete: 403, a second run: 409) are not problems.
+    p.on("response", (r) => {
+      const deliberate = r.request().method() !== "GET" && (r.status() === 403 || r.status() === 409);
+      const what = `${r.status()} ${r.url().replace(base, "")}`;
+      if (r.status() >= 400 && !deliberate && !expected.has(what) && !r.url().includes("favicon")) problems.push(what);
+    });
+  };
+  watch(page);
   let nextDialog: "accept" | "dismiss" = "accept";
   let lastDialog = "";
   page.on("dialog", async (d) => { lastDialog = d.message(); await (nextDialog === "accept" ? d.accept() : d.dismiss()); });
@@ -207,6 +264,157 @@ async function main(): Promise<void> {
   await page.waitForFunction(() => document.getElementById("jobstatus")!.textContent!.startsWith("running baseline:t"), null, { timeout: 8000 });
   await page.waitForFunction(() => /^finished|^failed/.test(document.getElementById("jobstatus")!.textContent!), null, { timeout: 90000 });
   check("re-checking an approved baseline finishes", (await page.locator("#jobstatus").textContent())!.startsWith("finished baseline:t"), await page.locator("#jobstatus").textContent() ?? "");
+
+  // 13. step review: keep before / keep after cards and the agent prompt
+  seedFlow();
+  await reload();
+  // Missing UI must FAIL the checks below, not hang the suite: every wait here is short and soft.
+  const soft = (p: Promise<unknown>): Promise<unknown> => p.catch(() => {});
+  await soft(page.locator("#runs .row", { hasText: FLOW_AFTER }).getByRole("button", { name: "Details" }).click());
+  const rev = page.locator("#runs .detail:not([hidden]) .steprev");
+  await soft(rev.locator(".stepcard").first().waitFor({ timeout: 5000 }));
+  const cardNames = () => rev.locator(".stepcard").evaluateAll((cs) => cs.map((c) => (c as HTMLElement).dataset.step));
+  const pick = (step: string, side: string) => rev.locator(`.stepcard[data-step="${step}"] button.pick[data-side="${side}"]`);
+  const pressed = async (step: string, side: string) => (await pick(step, side).getAttribute("aria-pressed", { timeout: 2000 }).catch(() => null)) === "true";
+  const copyBtn = rev.locator("button.copyprompt");
+  const copyText = () => copyBtn.textContent({ timeout: 2000 }).catch(() => "(no button)");
+  const quiet = (await rev.locator(".quiet").textContent({ timeout: 2000 }).catch(() => "")) ?? "";
+  check("step review shows cards only above hide-below, plus missing",
+    JSON.stringify(await cardNames()) === '["s1","s3"]' && quiet.includes("nothing to decide") && quiet.includes("s2"),
+    JSON.stringify(await cardNames()) + " / " + quiet);
+
+  await soft(pick("s1", "before").click({ timeout: 3000 }));
+  check("clicking a side marks it and updates the count",
+    (await pressed("s1", "before")) && (await copyText()) === "Copy prompt (1 step) · 1 fix · 0 keep", (await copyText()) ?? "");
+  await soft(pick("s1", "before").click({ timeout: 3000 }));
+  check("clicking the marked side again clears it",
+    !(await pressed("s1", "before")) && (await copyText()) === "Copy prompt (0 steps) · 0 fix · 0 keep" && (await copyBtn.isDisabled().catch(() => false)), (await copyText()) ?? "");
+  await soft(pick("s1", "before").click({ timeout: 3000 }));
+
+  // A new run forces a real re-render of the list (and so of the open Details panel).
+  await page.check("#auto");
+  const rowCount = await page.locator("#runs .row").count();
+  seedRun("2026-10-09_g", "late2", 1);
+  await soft(page.waitForFunction((n) => document.querySelectorAll("#runs .row").length === n + 1, rowCount, { timeout: 12000 }));
+  await soft(page.waitForSelector('#runs .detail:not([hidden]) .stepcard[data-step="s1"] button.pick[data-side="before"][aria-pressed="true"]', { timeout: 5000 }));
+  check("picks survive an auto-refresh", (await page.locator("#runs .row").count()) === rowCount + 1 && (await pressed("s1", "before")));
+  await page.uncheck("#auto");
+
+  const hideBelow = rev.locator("input.hidebelow");
+  check("hide-below starts at 0.1", (await hideBelow.inputValue({ timeout: 2000 }).catch(() => "")) === "0.1");
+  await soft(hideBelow.fill("5", { timeout: 2000 }));
+  check("raising hide-below drops picks on hidden cards",
+    JSON.stringify(await cardNames()) === '["s3"]' && (await copyText()) === "Copy prompt (0 steps) · 0 fix · 0 keep", JSON.stringify(await cardNames()) + " / " + (await copyText()));
+  await soft(hideBelow.fill("0.1", { timeout: 2000 }));
+  check("lowering it again brings the card back unmarked", JSON.stringify(await cardNames()) === '["s1","s3"]' && !(await pressed("s1", "before")));
+
+  await soft(pick("s1", "before").click({ timeout: 3000 }));
+  await soft(copyBtn.click({ timeout: 3000 }));
+  const box = rev.locator("textarea.prompt");
+  await soft(box.waitFor({ timeout: 5000 }));
+  const promptText = await box.inputValue({ timeout: 2000 }).catch(() => "");
+  check("copy prompt fills the editable box",
+    promptText.includes("FIX these steps") && promptText.includes("s1 (3% differ)") && promptText.endsWith(DO_NOT_APPROVE), promptText.slice(0, 200));
+  check("the box says edits are discarded on a change", ((await rev.textContent({ timeout: 2000 }).catch(() => "")) ?? "").includes(REBUILD_HINT));
+
+  // Copy: the clipboard API, and its fallback when the browser refuses.
+  const copy = rev.getByRole("button", { name: "Copy", exact: true });
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (t: string) => { (window as unknown as { copied: string }).copied = t; return Promise.resolve(); } } });
+  });
+  await soft(copy.click({ timeout: 3000 }));
+  check("Copy puts the box's text on the clipboard", (await page.evaluate(() => (window as unknown as { copied?: string }).copied)) === promptText && promptText !== "");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: () => Promise.reject(new Error("denied")) } });
+  });
+  await soft(copy.click({ timeout: 3000 }));
+  await soft(rev.locator(".copystatus", { hasText: "Press Ctrl+C to copy" }).waitFor({ timeout: 3000 }));
+  const allSelected = await page.evaluate(() => {
+    const t = document.querySelector("#runs .detail:not([hidden]) .steprev textarea.prompt") as HTMLTextAreaElement | null;
+    return !!t && t.value.length > 0 && t.selectionStart === 0 && t.selectionEnd === t.value.length;
+  });
+  check("a refused clipboard selects the text and says Press Ctrl+C to copy",
+    allSelected && ((await rev.locator(".copystatus").textContent({ timeout: 2000 }).catch(() => "")) ?? "").includes("Press Ctrl+C to copy"));
+
+  await soft(box.fill(promptText + "\nEDITED", { timeout: 2000 }));
+  await soft(pick("s3", "before").click({ timeout: 3000 }));
+  await soft(page.waitForFunction(() => {
+    const v = (document.querySelector("#runs .detail:not([hidden]) .steprev textarea.prompt") as HTMLTextAreaElement | null)?.value ?? "";
+    return !v.includes("EDITED") && v.includes("s3 (missing from the after run)");
+  }, null, { timeout: 5000 }));
+  const rebuilt = await box.inputValue({ timeout: 2000 }).catch(() => "");
+  check("changing a pick rebuilds the text and discards edits",
+    !rebuilt.includes("EDITED") && rebuilt.includes("s3 (missing from the after run)") && (await copyText()) === "Copy prompt (2 steps) · 2 fix · 0 keep", (await copyText()) ?? "");
+
+  // The Compare panel gets the same cards: before / after / diff from the two runs.
+  await page.selectOption("#cmp-a", FLOW_BASE);
+  await page.selectOption("#cmp-b", FLOW_AFTER);
+  await page.selectOption("#cmp-name", "flow");
+  await page.click("#cmp-go");
+  const cmpCard = '#cmpout .steprev .stepcard[data-step="s1"]';
+  await soft(page.waitForFunction((sel) => {
+    const imgs = [...document.querySelectorAll(sel + " img")] as HTMLImageElement[];
+    return imgs.length === 3 && imgs.every((i) => i.complete && i.naturalWidth > 0);
+  }, cmpCard, { timeout: 5000 }));
+  check("compare panel shows step cards", (await page.locator(cmpCard + " img").count()) === 3 &&
+    (await page.locator(cmpCard + " img").evaluateAll((is) => is.every((i) => (i as HTMLImageElement).naturalWidth > 0))));
+  const cmpRev = page.locator("#cmpout .steprev");
+  await soft(cmpRev.locator('.stepcard[data-step="s1"] button.pick[data-side="after"]').click({ timeout: 3000 }));
+  await soft(cmpRev.locator("button.copyprompt").click({ timeout: 3000 }));
+  await soft(cmpRev.locator("textarea.prompt").waitFor({ timeout: 5000 }));
+  const cmpPrompt = await cmpRev.locator("textarea.prompt").inputValue({ timeout: 2000 }).catch(() => "");
+  check("a compare-mode prompt keeps the step and has the compare check line",
+    cmpPrompt.includes("KEEP these steps") && cmpPrompt.includes(" compare ") && cmpPrompt.includes(join(repo, "out", FLOW_BASE)), cmpPrompt.slice(0, 200));
+
+  // Local only: never a prompt for a request that came through `tailscale serve`.
+  const viaTailscale = (login: string) => page.evaluate(async ({ login, dir }) => {
+    const r = await fetch("/api/step-prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json", "tailscale-user-login": login },
+      body: JSON.stringify({ mode: "baseline", dir, name: "flow", picks: { s1: "before" }, hideBelow: 0.1 }),
+    });
+    return { status: r.status, body: await r.text() };
+  }, { login, dir: FLOW_AFTER });
+  const ts = await viaTailscale(WRITER);
+  check("tailscale viewers get the note, not the button", ts.status === 403 && ts.body.includes(LOCAL_ONLY), `${ts.status} ${ts.body}`);
+  check("a tailscale viewer who may not write is refused too", (await viaTailscale("reader@example.com")).status === 403);
+  const tsCtx = await browser.newContext({ viewport: { width: 1300, height: 900 }, extraHTTPHeaders: { "tailscale-user-login": WRITER } });
+  const tsPage = await tsCtx.newPage();
+  watch(tsPage);
+  await tsPage.goto(base + "/");
+  await tsPage.waitForSelector("#runs .row");
+  await soft(tsPage.locator("#runs .row", { hasText: FLOW_AFTER }).getByRole("button", { name: "Details" }).click());
+  const tsRev = tsPage.locator("#runs .detail:not([hidden]) .steprev");
+  await soft(tsRev.locator(".stepcard").first().waitFor({ timeout: 5000 }));
+  const tsNote = (await tsRev.locator(".localonly").textContent({ timeout: 2000 }).catch(() => "")) ?? "";
+  check("over tailscale the page shows the cards and the note instead of Copy prompt",
+    (await tsRev.locator(".stepcard").count()) === 2 && tsNote === LOCAL_ONLY && (await tsRev.locator("button.copyprompt").count()) === 0, tsNote);
+  await tsCtx.close();
+
+  // A pick the server can no longer honour (its image is gone) is refused, and the page says why.
+  expected.add("400 /api/step-prompt");
+  expected.add(`404 /files/${FLOW_BASE}/flow.s1.png`);
+  rmSync(join(repo, "out", FLOW_BASE, "flow.s1.png"));
+  await soft(copyBtn.click({ timeout: 3000 }));
+  await soft(rev.locator(".prompterr").waitFor({ timeout: 5000 }));
+  const refused = (await rev.locator(".prompterr").textContent({ timeout: 2000 }).catch(() => "")) ?? "";
+  check("a refused prompt shows the server's reason on the page", refused.includes("no before image"), refused);
+  // And a side whose image does not load is never offered.
+  const ctx2 = await browser.newContext({ viewport: { width: 1300, height: 900 } });
+  const page2 = await ctx2.newPage();
+  watch(page2);
+  await page2.goto(base + "/");
+  await page2.waitForSelector("#runs .row");
+  await soft(page2.locator("#runs .row", { hasText: FLOW_AFTER }).getByRole("button", { name: "Details" }).click());
+  const rev2 = page2.locator("#runs .detail:not([hidden]) .steprev");
+  await soft(rev2.locator('.stepcard[data-step="s1"] button.pick[data-side="after"]:not([disabled])').waitFor({ timeout: 5000 }));
+  await soft(page2.waitForSelector('#runs .detail:not([hidden]) .stepcard[data-step="s1"] button.pick[data-side="before"][disabled]', { timeout: 5000 }));
+  await soft(page2.waitForSelector('#runs .detail:not([hidden]) .stepcard[data-step="s1"] button.pick[data-side="before"][title="the image did not load"]', { timeout: 5000 }));
+  const brokenSide = rev2.locator('.stepcard[data-step="s1"] button.pick[data-side="before"]');
+  check("a side whose image fails to load cannot be picked",
+    (await brokenSide.isDisabled({ timeout: 2000 }).catch(() => false)) && (await brokenSide.getAttribute("title", { timeout: 2000 }).catch(() => null)) === "the image did not load" &&
+    !(await rev2.locator('.stepcard[data-step="s1"] button.pick[data-side="after"]').isDisabled({ timeout: 2000 }).catch(() => true)));
+  await ctx2.close();
 
   check("no page errors and no failed requests during the whole run", problems.length === 0, problems.join("; "));
   // browser.close() can block after a long session; never let that hang the whole suite.

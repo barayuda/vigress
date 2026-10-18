@@ -90,7 +90,230 @@ function renderViewer(images) {
   return box;
 }
 
-function renderDetail(panel, entries) {
+// --- step review: mark each changed step screenshot "keep before" (a regression: fix the app)
+// or "keep after" (intended: don't undo it), then copy one prompt for the agent. ---
+// State lives here, keyed by "run:<dir>:<name>" or "cmp:<a>:<b>:<name>", so the auto-refresh
+// re-render and a repeated Compare keep it.
+const DEFAULT_HIDE_BELOW = 0.1; // %, display-only
+const stepPicks = new Map(); // key -> Map(step -> "before" | "after")
+const stepHideBelow = new Map(); // key -> number
+const stepPromptText = new Map(); // key -> the box's text, edits included; absent = box closed
+const stepPromptError = new Map(); // key -> why the server refused the last prompt request
+const stepPromptSeq = new Map(); // key -> latest prompt request, so a slow older answer is ignored
+const stepReviewLive = new Map(); // key -> redraw of the newest render (an answer can land after a re-render)
+const brokenImages = new Set(); // image URLs that failed to load: their side is never offered
+
+// Mirrors isCardStep in src/stepPrompt.ts: by mismatch %, never by verdict; new/missing always.
+const isCardStep = (d, hideBelow) => d.verdict === "new" || d.verdict === "missing" || d.mismatchPercent > hideBelow;
+const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
+
+// ctx: { key, stepDiffs, promptAllowed, baselineWarning?, promptBody: (picks, hideBelow) => object }
+function renderStepReview(container, ctx) {
+  const key = ctx.key;
+  if (!stepPicks.has(key)) stepPicks.set(key, new Map());
+  const picks = stepPicks.get(key);
+  const hideBelow = () => stepHideBelow.has(key) ? stepHideBelow.get(key) : DEFAULT_HIDE_BELOW;
+  const usable = (d, side) => d.sides.includes(side) && !!d.images[side] && !brokenImages.has(d.images[side]);
+  // A pick the data no longer allows (step gone, side not offered, image broken) is dropped.
+  for (const [step, side] of [...picks]) {
+    const d = ctx.stepDiffs.find((x) => x.name === step);
+    if (!d || !usable(d, side) || !isCardStep(d, hideBelow())) picks.delete(step);
+  }
+
+  const root = el("div", "steprev");
+  const bar = el("div", "steprev-bar");
+  bar.appendChild(el("strong", null, "Step screenshots"));
+  const label = el("label", null, "hide steps at or below ");
+  const input = document.createElement("input");
+  input.type = "number"; input.step = "0.01"; input.min = "0"; input.className = "hidebelow";
+  input.value = String(hideBelow());
+  label.appendChild(input);
+  label.appendChild(document.createTextNode(" %"));
+  bar.appendChild(label);
+  root.appendChild(bar);
+  if (ctx.baselineWarning) root.appendChild(el("div", "bad", ctx.baselineWarning));
+  if (ctx.promptAllowed) root.appendChild(el("div", "meta", "Click the side to keep: before = the after screenshot is a regression (fix the app), after = the change is intended (keep it)."));
+  const cards = el("div", "stepcards");
+  const quiet = el("div", "meta quiet");
+  root.appendChild(cards);
+  root.appendChild(quiet);
+  const foot = el("div", "steprev-foot");
+  const copyBtn = el("button", "copyprompt");
+  const err = el("div", "bad prompterr");
+  if (ctx.promptAllowed) foot.appendChild(copyBtn);
+  else foot.appendChild(el("div", "meta localonly", "Copy prompt is available only on the machine running the dashboard."));
+  root.appendChild(foot);
+  root.appendChild(err);
+  const promptBox = el("div", "promptbox");
+  root.appendChild(promptBox);
+  container.appendChild(root);
+
+  const pickButtons = []; // { d, side, btn, cap }
+  const refreshMarks = () => {
+    for (const p of pickButtons) {
+      const on = picks.get(p.d.name) === p.side;
+      p.btn.classList.toggle("on", on);
+      p.btn.setAttribute("aria-pressed", String(on));
+      p.cap.textContent = on ? (p.side === "before" ? "Keep before: fix" : "Keep after: intended") : (p.side === "before" ? "Before" : "After");
+    }
+    let fix = 0, keep = 0;
+    for (const side of picks.values()) side === "before" ? fix++ : keep++;
+    copyBtn.textContent = "Copy prompt (" + plural(fix + keep, "step", "steps") + ") · " + fix + " fix · " + keep + " keep";
+    copyBtn.disabled = fix + keep === 0;
+  };
+
+  const showPrompt = () => {
+    err.textContent = stepPromptError.has(key) ? "Copy prompt refused: " + stepPromptError.get(key) : "";
+    err.hidden = !stepPromptError.has(key);
+    promptBox.replaceChildren();
+    if (!stepPromptText.has(key)) return;
+    const ta = el("textarea", "prompt");
+    ta.value = stepPromptText.get(key);
+    ta.rows = 14;
+    ta.spellcheck = false;
+    ta.oninput = () => stepPromptText.set(key, ta.value);
+    const row = el("div", "promptrow");
+    const copy = el("button", null, "Copy");
+    const status = el("span", "meta copystatus");
+    copy.onclick = async () => {
+      try {
+        if (!navigator.clipboard) throw new Error("no clipboard");
+        await navigator.clipboard.writeText(ta.value);
+        status.textContent = "Copied.";
+      } catch {
+        ta.focus();
+        ta.select();
+        status.textContent = "Press Ctrl+C to copy";
+      }
+    };
+    row.appendChild(copy);
+    row.appendChild(status);
+    promptBox.appendChild(ta);
+    promptBox.appendChild(row);
+    promptBox.appendChild(el("div", "meta", "Changing a pick or the hide-below value rebuilds this text and discards edits."));
+  };
+
+  // The server builds the text (it alone has the absolute paths); a refusal is shown, not swallowed.
+  const fetchPrompt = async () => {
+    if (!ctx.promptAllowed) return;
+    const seq = (stepPromptSeq.get(key) || 0) + 1;
+    stepPromptSeq.set(key, seq);
+    let res, body;
+    try {
+      res = await fetch("/api/step-prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(ctx.promptBody(Object.fromEntries(picks), hideBelow())),
+      });
+      const text = await res.text();
+      try { body = JSON.parse(text); } catch { body = { error: text || "HTTP " + res.status }; }
+    } catch (e) {
+      res = null;
+      body = { error: String(e) };
+    }
+    if (stepPromptSeq.get(key) !== seq) return; // a newer request has been sent
+    if (res && res.ok && typeof body.text === "string") {
+      stepPromptText.set(key, body.text);
+      stepPromptError.delete(key);
+    } else {
+      stepPromptText.delete(key);
+      stepPromptError.set(key, body.error || "HTTP " + (res ? res.status : "error"));
+    }
+    stepReviewLive.get(key)();
+  };
+
+  // A change to the picks or hide-below rebuilds an open box (or closes it when nothing is marked).
+  const changed = () => {
+    refreshMarks();
+    if (stepPromptError.delete(key)) showPrompt(); // that refusal was about the old picks
+    if (!stepPromptText.has(key)) return;
+    if (picks.size) fetchPrompt();
+    else { stepPromptText.delete(key); showPrompt(); }
+  };
+
+  const thumb = (d, side, src) => {
+    const isDiff = side === "diff";
+    const f = el(isDiff ? "figure" : "button", isDiff ? "thumb" : "pick");
+    const cap = el(isDiff ? "figcaption" : "span", "cap", side === "before" ? "Before" : side === "after" ? "After" : "Diff");
+    if (!isDiff) {
+      f.type = "button";
+      f.dataset.side = side;
+      f.disabled = true; // until its image has loaded
+    }
+    if (!src) {
+      f.appendChild(el("div", "noimg", side === "before" ? "not in before" : side === "after" ? "not in after" : "no diff"));
+      f.appendChild(cap);
+      return f;
+    }
+    const image = img(src, d.name + " " + side);
+    image.loading = "eager";
+    f.appendChild(image);
+    f.appendChild(cap);
+    // Clickable only once the image is shown: a side whose image is missing or broken is never offered.
+    if (isDiff || !ctx.promptAllowed || !usable(d, side)) return f;
+    f.title = side === "before" ? "Keep before: the after screenshot is a regression" : "Keep after: the change is intended";
+    const enable = () => { f.disabled = false; };
+    if (image.complete && image.naturalWidth > 0) enable();
+    else image.onload = enable;
+    image.onerror = () => {
+      brokenImages.add(src);
+      f.disabled = true;
+      f.title = "the image did not load";
+      if (picks.get(d.name) === side) { picks.delete(d.name); changed(); }
+    };
+    pickButtons.push({ d, side, btn: f, cap });
+    f.onclick = () => {
+      if (picks.get(d.name) === side) picks.delete(d.name);
+      else picks.set(d.name, side);
+      changed();
+    };
+    return f;
+  };
+
+  const drawCards = () => {
+    cards.replaceChildren();
+    pickButtons.length = 0;
+    const hb = hideBelow();
+    const hidden = [];
+    for (const d of ctx.stepDiffs) {
+      if (!isCardStep(d, hb)) { hidden.push(d.name); continue; }
+      const card = el("div", "stepcard");
+      card.dataset.step = d.name;
+      card.appendChild(el("div", "name", d.name + " · " + (d.verdict === "missing" ? "missing from the after run" :
+        d.verdict === "new" ? "new in the after run" : d.mismatchPercent + "% differ")));
+      const row = el("div", "thumbs");
+      row.appendChild(thumb(d, "before", d.images.before));
+      row.appendChild(thumb(d, "after", d.images.after));
+      row.appendChild(thumb(d, "diff", d.images.diff));
+      card.appendChild(row);
+      cards.appendChild(card);
+    }
+    if (!cards.hasChildNodes()) cards.appendChild(el("div", "meta", "No step changed by more than " + hb + "%."));
+    quiet.textContent = hidden.length ? plural(hidden.length, "step", "steps") + " at or below " + hb + "%, nothing to decide: " + hidden.join(", ") : "";
+    quiet.hidden = !hidden.length;
+  };
+
+  input.oninput = () => {
+    const v = input.value === "" ? NaN : Number(input.value);
+    if (!Number.isFinite(v) || v < 0) return; // keep the last valid value while typing
+    stepHideBelow.set(key, v);
+    // Picks on cards that are now hidden are dropped; the others stay.
+    for (const [step] of [...picks]) {
+      const d = ctx.stepDiffs.find((x) => x.name === step);
+      if (!d || !isCardStep(d, v)) picks.delete(step);
+    }
+    drawCards();
+    changed();
+  };
+  copyBtn.onclick = fetchPrompt;
+  stepReviewLive.set(key, showPrompt);
+
+  drawCards();
+  refreshMarks();
+  showPrompt();
+}
+
+function renderDetail(panel, entries, dirName) {
   const list = (items) => { const ul = el("ul"); for (const t of items) ul.appendChild(el("li", null, t)); return ul; };
   for (const e of entries) {
     panel.appendChild(el("h3", null, e.name +
@@ -108,8 +331,13 @@ function renderDetail(panel, entries) {
         g.styleMismatches.map((s) => " · " + s.property + " " + s.target + " ≠ " + s.baseline).join(""))));
     }
     if (e.stepDiffs.length) {
-      panel.appendChild(el("div", null, "step diffs"));
-      panel.appendChild(list(e.stepDiffs.map((d) => d.name + ": " + d.verdict + " (" + d.mismatchPercent + "%)")));
+      renderStepReview(panel, {
+        key: "run:" + dirName + ":" + e.name,
+        stepDiffs: e.stepDiffs,
+        promptAllowed: e.promptAllowed,
+        baselineWarning: e.baselineWarning,
+        promptBody: (picks, hideBelow) => ({ mode: "baseline", dir: dirName, name: e.name, picks, hideBelow }),
+      });
     }
   }
 }
@@ -194,7 +422,7 @@ function render() {
         if (!panel.hasChildNodes()) {
           const res = await fetch("/api/runs/" + encodeURIComponent(r.dirName) + "/detail");
           if (!res.ok) return (await res.json()).error;
-          renderDetail(panel, await res.json());
+          renderDetail(panel, await res.json(), r.dirName);
         }
         panel.hidden = false;
         return null;
@@ -522,10 +750,13 @@ cmpEl("cmp-go").onclick = async () => {
   if (body.widthDelta) out.appendChild(el("div", "bad", "width " + sign(body.widthDelta) + "px (after minus before)"));
   out.appendChild(renderViewer(body.images));
   if (body.stepDiffs.length) {
-    out.appendChild(el("div", null, "step screenshots"));
-    const ul = el("ul");
-    for (const s of body.stepDiffs) ul.appendChild(el("li", null, s.name + ": " + s.verdict + " (" + s.mismatchPercent + "%)"));
-    out.appendChild(ul);
+    const a = body.before, b = body.after, name = body.name;
+    renderStepReview(out, {
+      key: "cmp:" + a + ":" + b + ":" + name,
+      stepDiffs: body.stepDiffs,
+      promptAllowed: body.promptAllowed,
+      promptBody: (picks, hideBelow) => ({ mode: "compare", a, b, name, picks, hideBelow }),
+    });
   }
 };
 

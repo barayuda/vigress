@@ -433,8 +433,9 @@ bun run src/cli.ts dashboard [--port 4600] [--out out]
 |--------|------|-------------|
 | `GET` | `/` | Dashboard HTML page. |
 | `GET` | `/api/runs` | JSON array of run-dir entries (sorted newest-first). Optional filters, combined with AND: `q=<text>` (run dir or entry name, case-insensitive), `issues=1`, `locked=1`, `min=<pct>` (worst mismatch at least this). Unknown values are ignored, so a bad filter never hides runs. |
-| `GET` | `/api/runs/<dir>/detail` | The reviewable parts of one run's `summary.json`, one entry per comparison: `name`, `images` (ready `/files/…` URLs: `target`, and `baseline`/`diff`/`video` when present), `mismatchPercent`, `heightDelta`, `bootstrap`, `issues`, `failedSteps[]`, `regions[]` (with `styleMismatches`) and `stepDiffs[]`. `404` if the dir is missing or has no readable summary. The page shows it under **Details**, with a side-by-side / slider comparison of baseline, target and diff. |
-| `GET` | `/api/compare` | `?a=<run dir>&b=<run dir>[&name=<run>]` — diff the same-named capture of two existing runs (a = before, b = after) in memory: `mismatchPercent`, `heightDelta`/`widthDelta` (after minus before), `stepDiffs`, and `images` (`baseline`/`target` file URLs plus the diff as a `data:` URL). Nothing is written and it is not a run. `400` for bad names or a path that escapes its run dir; `404` for a missing/unreadable run. |
+| `GET` | `/api/runs/<dir>/detail` | The reviewable parts of one run's `summary.json`, one entry per comparison: `name`, `images` (ready `/files/…` URLs: `target`, and `baseline`/`diff`/`video` when present), `mismatchPercent`, `heightDelta`, `bootstrap`, `issues`, `failedSteps[]`, `regions[]` (with `styleMismatches`), `stepDiffs[]` (each with `name`, `verdict`, `mismatchPercent`, `images` — `before` (the approved version the run was compared against), `after` and `diff` as `/files/…` URLs when present — and `sides`, the sides that can be kept), `baselineWarning` (set when that approved version is gone, so the before images may not be what the run was compared against) and `promptAllowed` (false over `tailscale serve`). `404` if the dir is missing or has no readable summary. The page shows it under **Details**, with a side-by-side / slider comparison of baseline, target and diff, and the [step review](#reviewing-step-screenshots-keep-before--keep-after) cards. |
+| `GET` | `/api/compare` | `?a=<run dir>&b=<run dir>[&name=<run>]` — diff the same-named capture of two existing runs (a = before, b = after) in memory: `mismatchPercent`, `heightDelta`/`widthDelta` (after minus before), `stepDiffs` (same shape as in `/detail`; `before`/`after` are file URLs, the step `diff` is a `data:` URL), `promptAllowed`, and `images` (`baseline`/`target` file URLs plus the diff as a `data:` URL). Nothing is written and it is not a run. `400` for bad names or a path that escapes its run dir; `404` for a missing/unreadable run. |
+| `POST` | `/api/step-prompt` | Builds the agent prompt for the marked step screenshots: body `{ "mode": "baseline", "dir": "<run dir>", "name": "<run>", "picks": { "<step>": "before"\|"after" }, "hideBelow": <pct> }` or `{ "mode": "compare", "a": "<before run dir>", "b": "<after run dir>", "name", "picks", "hideBelow" }`. Returns `{ text }`. `400` + `{ error }` for a bad body, nothing marked, an unknown step, a side the step does not have, a step at or below `hideBelow`, or a side whose image is no longer on disk; `403` for any request that came through `tailscale serve` (the text holds absolute paths). Writes nothing. |
 | `GET` | `/api/trends` | `{ "<name>": [{ dirName, mtimeMs, mismatchPercent, heightDelta?, baselineType }] }` — mismatch % per comparison name over time (oldest first, at most 50 per name), from the existing `summary.json` files. Bootstrap runs and runs with nothing diffed are not points. |
 | `GET` | `/api/configs` | `{ configs, baselines }` — the `*.fullcheck.json` files in the repo root (plain file names only) and the approved baseline names. These are the only things the page can run. |
 | `GET` | `/api/jobs` | `{ job, runDir }` — the latest run started from the page (`state`: `running`/`done`/`failed`, `exitCode`, `error`, last output lines) and, once it produced one, the run dir name under `out/`. |
@@ -454,6 +455,22 @@ The **Trends** table shows, per comparison name, how many runs it has, the lates
 ### Filtering and auto-refresh
 
 The page has a filter box and checkboxes (has issues, baseline-locked, worst mismatch ≥ N %) that map onto the `/api/runs` query above, and an **Auto-refresh** toggle that re-polls every 5 seconds and only re-renders when the list changed. Open **Details** panels stay open across refreshes. **Cleanup** always lists the unfiltered set in its confirmation, because the server deletes every run that is neither kept nor locked, whatever the list is filtered to.
+
+### Reviewing step screenshots (keep before / keep after)
+
+When a run has step screenshot diffs (a `baseline:` run, under **Details**) or two compared runs share step screenshots (the **Compare** panel), the page shows a card per changed step with three thumbnails: before, after and diff. Click the side to keep:
+
+- **Keep before** — the after screenshot is a regression: the agent must change the app code until it matches before again (**fix**).
+- **Keep after** — the change is intended: the agent must not undo it while fixing the others (**keep**).
+
+Click the marked side again to clear it. Unmarked cards are left out of the prompt.
+
+- **Which steps get a card.** A step gets a card when its mismatch % is above the **hide steps at or below** value (default `0.1` %); `new` and `missing` steps always get one (a missing step can only be kept as before, a new one only as after). Steps at or below the value are listed once as "nothing to decide". The value is display-only: it is no gate and changes no verdict. Raising it drops the picks on cards it hides. Cards go by the mismatch %, not by the `mismatch` verdict (that verdict only appears when `--max-mismatch` was set).
+- **Copy prompt** (the button shows the count, e.g. "Copy prompt (2 steps) · 1 fix · 1 keep") opens the prompt in an editable box with a **Copy** button. Edits apply to that copy only: changing a pick or the hide-below value rebuilds the text and discards them. If the browser refuses the clipboard, the text is selected so you can press Ctrl+C.
+- **What the prompt says.** The comparison name and target URL, the before and after (absolute paths), the FIX steps and the KEEP steps with their image paths, the exact command to re-run the after run (from the run's recorded `invocation`, with `--json` and without `--update-baseline` / `--no-timestamp`; in compare mode also the `vigress compare` line to diff the new run against the before run), what "done" means (every FIX step at or below the hide-below value, every KEEP step still like its after screenshot), and a line telling the agent not to approve or re-bless anything. You approve the result yourself.
+- **Before images** in run details come from the approved version the run was compared against (its `baselineRef`), even if the baseline has been re-approved since. If that version is gone, the current one is used and the cards and prompt carry a warning.
+- **Local only.** The prompt holds absolute paths, so it is only built for the machine running the dashboard. Over `tailscale serve` the cards and images still show, with the note "Copy prompt is available only on the machine running the dashboard."
+- Picks, the hide-below value and the box's text are kept per run (or per compared pair) across the auto-refresh, but not across a page reload.
 
 ### Running a saved config or re-checking a baseline
 
@@ -1009,7 +1026,9 @@ bun run test:ui
 real browser (Playwright, via `VIGRESS_BROWSER`, default `chrome`). It covers what unit tests
 cannot: the filters, the Cleanup safety confirmation, links built from `summary.json`, Details
 surviving an auto-refresh, rollback and approve, compare, trends, running a saved config
-(including the one-at-a-time refusal) and re-checking a baseline. It needs an installed
+(including the one-at-a-time refusal), re-checking a baseline, and the step review (cards,
+picks surviving an auto-refresh, hide-below, the prompt box and its clipboard fallback, and
+the local-only rule). It needs an installed
 browser, opens ports on `127.0.0.1`, takes about two minutes, and cleans up after itself. It is
 not part of `bun test`.
 
