@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { referencedRunDirs, buildRunIndex, buildRunDetail, resolveRunBaseline, repoPathUrl, isPromptAllowed, buildTrends, TREND_MAX_POINTS, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { dirSegment, compareStepDiffsPayload, parseStepPromptBody, baselineCandidates, compareCandidates, planStepPrompt, referencedRunDirs, buildRunIndex, buildRunDetail, resolveRunBaseline, repoPathUrl, isPromptAllowed, buildTrends, TREND_MAX_POINTS, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry, type Manifest, type ManifestEntry, type BaselineVersion } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
@@ -517,5 +517,166 @@ describe("buildRunDetail step images and sides", () => {
     const [d] = buildRunDetail(summary([run()]), "run-x", ctx);
     expect(d.baselineWarning).toBeUndefined();
     expect(d.stepDiffs).toEqual([]);
+  });
+});
+
+describe("dirSegment", () => {
+  it("accepts one plain component and refuses traversal, dots and bad escapes", () => {
+    expect(dirSegment("2026-a")).toBe("2026-a");
+    expect(dirSegment("a%2Fb")).toBeNull();
+    expect(dirSegment("..")).toBeNull();
+    expect(dirSegment(".hidden")).toBeNull();
+    expect(dirSegment("%E0%A4%A")).toBeNull();
+    expect(dirSegment("")).toBeNull();
+  });
+});
+
+describe("compareStepDiffsPayload", () => {
+  it("gives URLs, an inline diff and sides, and no buffers or absolute paths", () => {
+    const out = compareStepDiffsPayload(
+      [
+        { name: "s1", mismatchPercent: 2, verdict: "ok", aRel: "page.s1.png", bRel: "page.s1.png", diffPng: Buffer.from("png") },
+        { name: "s2", mismatchPercent: 0, verdict: "missing", aRel: "page.s2.png" },
+        { name: "s3", mismatchPercent: 0, verdict: "new", bRel: "page.s3.png" },
+      ],
+      "run-a",
+      "run-b",
+    );
+    expect(out[0].images).toEqual({ before: "/files/run-a/page.s1.png", after: "/files/run-b/page.s1.png", diff: "data:image/png;base64," + Buffer.from("png").toString("base64") });
+    expect(out[0].sides).toEqual(["before", "after"]);
+    expect(out[1].images).toEqual({ before: "/files/run-a/page.s2.png" });
+    expect(out[1].sides).toEqual(["before"]);
+    expect(out[2].images).toEqual({ after: "/files/run-b/page.s3.png" });
+    expect(out[2].sides).toEqual(["after"]);
+    expect(JSON.stringify(out)).not.toContain('"type":"Buffer"');
+  });
+});
+
+describe("parseStepPromptBody", () => {
+  const base = { mode: "baseline", dir: "run-x", name: "page", picks: { s1: "before" }, hideBelow: 0.1 };
+  it("accepts a baseline body and a compare body", () => {
+    expect(parseStepPromptBody(base)).toEqual({ ok: true, body: { mode: "baseline", dir: "run-x", name: "page", picks: { s1: "before" }, hideBelow: 0.1 } });
+    const c = parseStepPromptBody({ mode: "compare", a: "run-a", b: "run-b", name: "page", picks: { s1: "after" }, hideBelow: 0 });
+    expect(c).toEqual({ ok: true, body: { mode: "compare", a: "run-a", b: "run-b", name: "page", picks: { s1: "after" }, hideBelow: 0 } });
+  });
+  it.each([
+    [null],
+    [{ ...base, mode: "x" }],
+    [{ ...base, dir: "../x" }],
+    [{ ...base, dir: undefined }],
+    [{ ...base, name: "" }],
+    [{ ...base, hideBelow: -1 }],
+    [{ ...base, hideBelow: "0.1" }],
+    [{ ...base, hideBelow: Number.NaN }],
+    [{ ...base, picks: [] }],
+    [{ ...base, picks: { s1: "both" } }],
+    [{ mode: "compare", a: "run-a", b: ".x", name: "page", picks: {}, hideBelow: 0 }],
+  ])("rejects a bad body %#", (b) => {
+    expect(parseStepPromptBody(b).ok).toBe(false);
+  });
+});
+
+describe("step prompt planning", () => {
+  const paths = { rootDir: "/repo", outDirAbs: "/repo/out", outDirRel: "out" };
+  const r = run({
+    name: "page",
+    targetUrl: "https://app.test/page",
+    baselineRef: { name: "page", approvedAt: "2026-10-03T00:00:00Z" },
+    shots: [{ name: "s1", path: "page.s1.png" }, { name: "s3", path: "page.s3.png" }, { name: "tiny", path: "page.tiny.png" }],
+    stepDiffs: [
+      { name: "s1", mismatchPercent: 2, verdict: "ok", diff: "page.s1.diff.png" },
+      { name: "s2", mismatchPercent: 0, verdict: "missing" },
+      { name: "s3", mismatchPercent: 0, verdict: "new" },
+      { name: "tiny", mismatchPercent: 0.05, verdict: "ok", diff: "page.tiny.diff.png" },
+    ],
+  });
+  const m = manifestOf("page", version("2026-10-03T00:00:00Z", { artifacts: { main: "out/2026-a/page.target.png", steps: { s1: "out/2026-a/page.s1.png", s2: "out/2026-a/page.s2.png", tiny: "out/2026-a/page.tiny.png" } } }));
+  const all = (): boolean => true;
+  const sum: Summary = { ...summary([r]), invocation: { cwd: "/app", argv: ["after", "page", "--target", "https://app.test/page"] } };
+  const plan = (picks: Record<string, "before" | "after">, over: { exists?: (a: string) => boolean; hideBelow?: number } = {}) => {
+    const b = baselineCandidates(r, "/repo/out/run-x", m, paths, over.exists ?? all);
+    return planStepPrompt({
+      mode: "baseline", name: "page", picks, hideBelow: over.hideBelow ?? 0.1, candidates: b.candidates, afterRun: r, afterSummary: sum,
+      afterDirAbs: "/repo/out/run-x", beforeLabel: b.beforeLabel, warning: b.warning, rootDir: "/repo", cliPath: "/cli/cli.ts",
+    });
+  };
+
+  it("resolves absolute before/after/diff paths in baseline mode", () => {
+    const p = plan({ s1: "before" });
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.input.steps).toEqual([
+      { name: "s1", side: "before", verdict: "ok", mismatchPercent: 2, before: "/repo/out/2026-a/page.s1.png", after: "/repo/out/run-x/page.s1.png", diff: "/repo/out/run-x/page.s1.diff.png" },
+    ]);
+    expect(p.input.beforeLabel).toBe("approved baseline page (approved 2026-10-03T00:00:00Z)");
+    expect(p.input.afterDir).toBe("/repo/out/run-x");
+    expect(p.input.targetUrl).toBe("https://app.test/page");
+    expect(p.input.rerun).toContain("cd /app && bun run /cli/cli.ts after page --target https://app.test/page --json");
+    expect(p.input.compareCheck).toBeUndefined();
+    expect(p.input.warning).toBeUndefined();
+  });
+  it("gives a missing step no after or diff path, and a new step no before path", () => {
+    const p = plan({ s2: "before", s3: "after" });
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.input.steps).toEqual([
+      { name: "s2", side: "before", verdict: "missing", mismatchPercent: 0, before: "/repo/out/2026-a/page.s2.png" },
+      { name: "s3", side: "after", verdict: "new", mismatchPercent: 0, after: "/repo/out/run-x/page.s3.png" },
+    ]);
+  });
+  it("only includes picked steps, in run order", () => {
+    const p = plan({ s3: "after", s1: "after" });
+    expect(p.ok && p.input.steps.map((s) => s.name)).toEqual(["s1", "s3"]);
+  });
+  it("refuses a pick on a step hidden by hideBelow", () => {
+    const p = plan({ tiny: "before" });
+    expect(p).toEqual({ ok: false, message: 'step "tiny" is hidden at 0.1%; it cannot be marked' });
+    expect(plan({ tiny: "before" }, { hideBelow: 0.01 }).ok).toBe(true);
+  });
+  it("refuses unknown steps, impossible sides and empty picks", () => {
+    expect(plan({ nope: "before" }).ok).toBe(false);
+    expect(plan({ s2: "after" }).ok).toBe(false);
+    expect(plan({}).ok).toBe(false);
+  });
+  it("refuses a side whose image is not on disk", () => {
+    const p = plan({ s1: "before" }, { exists: (a) => !a.includes("2026-a") });
+    expect(p).toEqual({ ok: false, message: 'step "s1" has no before image to keep' });
+    expect(plan({ s1: "after" }, { exists: (a) => !a.includes("2026-a") }).ok).toBe(true);
+    expect(plan({ s1: "after" }, { exists: (a) => !a.includes("run-x") }).ok).toBe(false);
+  });
+  it("refuses a before image whose manifest path is outside out/", () => {
+    const bad = manifestOf("page", version("2026-10-03T00:00:00Z", { artifacts: { main: "x.png", steps: { s1: "/etc/passwd" } } }));
+    const b = baselineCandidates(r, "/repo/out/run-x", bad, paths, all);
+    expect(b.candidates[0].before).toBeUndefined();
+  });
+  it("carries the baseline warning and a no-longer-approved label", () => {
+    const b = baselineCandidates(r, "/repo/out/run-x", null, paths, all);
+    expect(b.warning).toBe("baseline 'page' is no longer approved");
+    expect(b.beforeLabel).toBe("approved baseline page (no longer approved)");
+    expect(b.candidates.every((c) => c.before === undefined)).toBe(true);
+  });
+  it("has no rerun when the summary has no invocation", () => {
+    const b = baselineCandidates(r, "/repo/out/run-x", m, paths, all);
+    const p = planStepPrompt({ mode: "baseline", name: "page", picks: { s1: "after" }, hideBelow: 0.1, candidates: b.candidates, afterRun: r, afterSummary: summary([r]), afterDirAbs: "/repo/out/run-x", beforeLabel: b.beforeLabel, rootDir: "/repo", cliPath: "/cli/cli.ts" });
+    expect(p.ok && p.input.rerun).toBeNull();
+  });
+
+  it("compare mode: before is the a run's shot, no diff path, compareCheck from the after run's cwd", () => {
+    const cands = compareCandidates(
+      [{ name: "s1", mismatchPercent: 2, verdict: "ok", aRel: "page.s1.png", bRel: "page.s1.png" }, { name: "s2", mismatchPercent: 0, verdict: "missing", aRel: "page.s2.png" }],
+      "/repo/out/run-a",
+      "/repo/out/run-b",
+    );
+    const p = planStepPrompt({ mode: "compare", name: "page", picks: { s1: "before", s2: "before" }, hideBelow: 0.1, candidates: cands, afterRun: r, afterSummary: sum, afterDirAbs: "/repo/out/run-b", beforeLabel: "/repo/out/run-a", rootDir: "/repo", cliPath: "/cli/cli.ts", compareBeforeDirAbs: "/repo/out/run-a" });
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.input.steps[0]).toEqual({ name: "s1", side: "before", verdict: "ok", mismatchPercent: 2, before: "/repo/out/run-a/page.s1.png", after: "/repo/out/run-b/page.s1.png" });
+    expect(p.input.beforeLabel).toBe("/repo/out/run-a");
+    expect(p.input.compareCheck).toBe("cd /app && bun run /cli/cli.ts compare /repo/out/run-a <outDir from the re-run JSON> --name page --json");
+  });
+  it("compare mode: a new step has an after path and no before path", () => {
+    const cands = compareCandidates([{ name: "s3", mismatchPercent: 0, verdict: "new", bRel: "page.s3.png" }], "/repo/out/run-a", "/repo/out/run-b");
+    expect(cands[0].before).toBeUndefined();
+    expect(cands[0].after).toBe("/repo/out/run-b/page.s3.png");
   });
 });

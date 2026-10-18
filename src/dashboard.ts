@@ -2,7 +2,8 @@ import { dirname, normalize, join, isAbsolute } from "node:path";
 import { versionArtifacts, type Manifest, type BaselineVersion } from "./baselines";
 import type { RunResult, Summary, StepDiffVerdict, RegionVerdict, GitInfo, BaselineRef } from "./types";
 import { sanitizeGitInfo } from "./gitinfo";
-import { sidesFor, type KeepSide } from "./stepPrompt";
+import { sidesFor, isCardStep, validatePicks, type KeepSide, type PromptStep, type StepPromptInput } from "./stepPrompt";
+import { buildRerunCommand, buildCompareCheckCommand } from "./rerun";
 
 // Pure view-model + guard logic for the dashboard. The server (server.ts)
 // does the I/O (scanning out/, markers, deletes) and feeds plain data in;
@@ -195,6 +196,202 @@ export function buildRunDetail(summary: Summary, dirName: string, ctx: RunDetail
       promptAllowed: ctx.promptAllowed,
     };
   });
+}
+
+// A run-dir URL segment must be a single, non-dotted path component.
+export function dirSegment(raw: string): string | null {
+  const name = safeDecode(raw);
+  if (!name || name.includes("/") || name.includes("..") || name.startsWith(".")) return null;
+  return name;
+}
+
+// The /api/compare step list: images as URLs (the diff inline, since compare writes no file),
+// and which sides can be marked. Buffers and run-relative paths never reach the JSON.
+export function compareStepDiffsPayload(
+  stepDiffs: { name: string; mismatchPercent: number; verdict: StepDiffVerdict; aRel?: string; bRel?: string; diffPng?: Buffer }[],
+  aDir: string,
+  bDir: string,
+): RunDetailStepDiff[] {
+  return stepDiffs.map((s) => ({
+    name: s.name,
+    verdict: s.verdict,
+    mismatchPercent: s.mismatchPercent,
+    images: {
+      ...(s.aRel !== undefined ? { before: fileUrl(aDir, s.aRel) } : {}),
+      ...(s.bRel !== undefined ? { after: fileUrl(bDir, s.bRel) } : {}),
+      ...(s.diffPng ? { diff: "data:image/png;base64," + s.diffPng.toString("base64") } : {}),
+    },
+    sides: sidesFor(s),
+  }));
+}
+
+export interface StepPromptBody {
+  mode: "baseline" | "compare";
+  dir?: string; // baseline mode: the run
+  a?: string; // compare mode: before run
+  b?: string; // compare mode: after run
+  name: string;
+  picks: Record<string, KeepSide>;
+  hideBelow: number;
+}
+
+// Shape check of the POST /api/step-prompt body. Whether the picks make sense for the run is
+// checked later, against the steps the run actually has.
+export function parseStepPromptBody(raw: unknown): { ok: true; body: StepPromptBody } | { ok: false; message: string } {
+  if (typeof raw !== "object" || raw === null) return { ok: false, message: "expected a JSON object" };
+  const b = raw as Record<string, unknown>;
+  if (b.mode !== "baseline" && b.mode !== "compare") return { ok: false, message: 'mode must be "baseline" or "compare"' };
+  if (typeof b.name !== "string" || b.name === "") return { ok: false, message: "name must be a comparison name" };
+  if (typeof b.hideBelow !== "number" || !Number.isFinite(b.hideBelow) || b.hideBelow < 0) {
+    return { ok: false, message: "hideBelow must be a number, 0 or more" };
+  }
+  if (typeof b.picks !== "object" || b.picks === null || Array.isArray(b.picks)) return { ok: false, message: "picks must be an object" };
+  const picks: Record<string, KeepSide> = {};
+  for (const [step, side] of Object.entries(b.picks)) {
+    if (side !== "before" && side !== "after") return { ok: false, message: `pick for "${step}" must be "before" or "after"` };
+    picks[step] = side;
+  }
+  const seg = (v: unknown, what: string): { ok: true; value: string } | { ok: false; message: string } => {
+    const d = typeof v === "string" ? dirSegment(v) : null;
+    return d ? { ok: true, value: d } : { ok: false, message: `${what} must be a run dir name` };
+  };
+  if (b.mode === "baseline") {
+    const dir = seg(b.dir, "dir");
+    if (!dir.ok) return dir;
+    return { ok: true, body: { mode: "baseline", dir: dir.value, name: b.name, picks, hideBelow: b.hideBelow } };
+  }
+  const a = seg(b.a, "a");
+  if (!a.ok) return a;
+  const after = seg(b.b, "b");
+  if (!after.ok) return after;
+  return { ok: true, body: { mode: "compare", a: a.value, b: after.value, name: b.name, picks, hideBelow: b.hideBelow } };
+}
+
+// One step as the prompt may use it. Paths are absolute and present only when the image
+// can actually be read, so a pick on a side without an image is refused.
+export interface PromptCandidate {
+  name: string;
+  verdict: StepDiffVerdict;
+  mismatchPercent: number;
+  before?: string;
+  after?: string;
+  diff?: string;
+}
+
+export interface PromptPaths {
+  rootDir: string;
+  outDirAbs: string;
+  outDirRel: string;
+}
+
+// Baseline mode: before = the approved version's step image, after/diff = this run's files.
+export function baselineCandidates(
+  run: RunResult,
+  runDirAbs: string,
+  manifest: Manifest | null,
+  paths: PromptPaths,
+  exists: (abs: string) => boolean,
+): { candidates: PromptCandidate[]; beforeLabel: string; warning?: string } {
+  const resolved = resolveRunBaseline(manifest, run.baselineRef, run.name);
+  const version = resolved.version;
+  const shotPaths = new Map(run.shots.map((sh) => [sh.name, sh.path]));
+  const inRun = (rel: string | undefined): string | undefined => {
+    if (rel === undefined) return undefined;
+    const abs = safeChildPath(runDirAbs, rel);
+    return abs && exists(abs) ? abs : undefined;
+  };
+  const candidates = run.stepDiffs.map((d): PromptCandidate => {
+    const beforeRel = version && Object.hasOwn(version.artifacts.steps, d.name) ? version.artifacts.steps[d.name] : undefined;
+    // Only a path the page could also show (under out/) counts, so a hand-edited manifest can't aim the prompt elsewhere.
+    const beforeAbs = beforeRel !== undefined && repoPathUrl(beforeRel, paths.outDirRel) !== null ? join(paths.rootDir, beforeRel) : undefined;
+    const before = beforeAbs !== undefined && exists(beforeAbs) ? beforeAbs : undefined;
+    const after = inRun(shotPaths.get(d.name));
+    const diff = d.verdict === "missing" ? undefined : inRun(d.diff);
+    return {
+      name: d.name,
+      verdict: d.verdict,
+      mismatchPercent: d.mismatchPercent,
+      ...(before ? { before } : {}),
+      ...(after ? { after } : {}),
+      ...(diff ? { diff } : {}),
+    };
+  });
+  const label = version
+    ? `approved baseline ${run.baselineRef?.name ?? run.name} (approved ${version.approvedAt})`
+    : `approved baseline ${run.baselineRef?.name ?? run.name} (no longer approved)`;
+  return { candidates, beforeLabel: label, ...(resolved.warning ? { warning: resolved.warning } : {}) };
+}
+
+// Compare mode: both runs' shots were already read by compareRuns, so the paths exist.
+// There is no diff file on disk (the Compare panel writes none).
+export function compareCandidates(
+  stepDiffs: { name: string; mismatchPercent: number; verdict: StepDiffVerdict; aRel?: string; bRel?: string }[],
+  aDirAbs: string,
+  bDirAbs: string,
+): PromptCandidate[] {
+  return stepDiffs.map((s) => ({
+    name: s.name,
+    verdict: s.verdict,
+    mismatchPercent: s.mismatchPercent,
+    ...(s.aRel !== undefined && safeChildPath(aDirAbs, s.aRel) ? { before: safeChildPath(aDirAbs, s.aRel)! } : {}),
+    ...(s.bRel !== undefined && safeChildPath(bDirAbs, s.bRel) ? { after: safeChildPath(bDirAbs, s.bRel)! } : {}),
+  }));
+}
+
+export interface PlanPromptInput {
+  mode: "baseline" | "compare";
+  name: string;
+  picks: Record<string, KeepSide>;
+  hideBelow: number;
+  candidates: PromptCandidate[];
+  afterRun: RunResult;
+  afterSummary: Summary;
+  afterDirAbs: string;
+  beforeLabel: string; // baseline mode: the approved-baseline label; compare mode: the absolute "a" run dir
+  warning?: string;
+  rootDir: string;
+  cliPath: string;
+  compareBeforeDirAbs?: string; // compare mode only
+}
+
+// Turns the user's picks into the prompt input, or the reason they can't be used (a 400).
+export function planStepPrompt(i: PlanPromptInput): { ok: true; input: StepPromptInput } | { ok: false; message: string } {
+  const valid = validatePicks(i.candidates, i.picks);
+  if (!valid.ok) return valid;
+  const steps: PromptStep[] = [];
+  // Steps keep their run order, whatever order the picks arrived in.
+  for (const c of i.candidates) {
+    if (!Object.hasOwn(i.picks, c.name)) continue;
+    const side = i.picks[c.name];
+    if (!isCardStep(c, i.hideBelow)) return { ok: false, message: `step "${c.name}" is hidden at ${i.hideBelow}%; it cannot be marked` };
+    if (c[side] === undefined) return { ok: false, message: `step "${c.name}" has no ${side} image to keep` };
+    steps.push({
+      name: c.name,
+      side,
+      verdict: c.verdict,
+      mismatchPercent: c.mismatchPercent,
+      ...(c.before ? { before: c.before } : {}),
+      ...(c.after ? { after: c.after } : {}),
+      ...(i.mode === "baseline" && c.diff ? { diff: c.diff } : {}),
+    });
+  }
+  return {
+    ok: true,
+    input: {
+      mode: i.mode,
+      comparison: i.name,
+      targetUrl: i.afterRun.targetUrl,
+      beforeLabel: i.beforeLabel,
+      afterDir: i.afterDirAbs,
+      ...(i.warning ? { warning: i.warning } : {}),
+      steps,
+      hideBelow: i.hideBelow,
+      rerun: buildRerunCommand(i.afterSummary.invocation, i.cliPath),
+      ...(i.mode === "compare" && i.compareBeforeDirAbs
+        ? { compareCheck: buildCompareCheckCommand(i.afterSummary.invocation?.cwd ?? i.rootDir, i.cliPath, i.compareBeforeDirAbs, i.name) }
+        : {}),
+    },
+  };
 }
 
 export function buildRunIndex(dirs: RunDirInfo[], refs: Map<string, string[]>): RunIndexEntry[] {

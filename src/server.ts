@@ -1,7 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative, basename } from "node:path";
-import { fileUrl, buildRunIndex, buildRunDetail, isPromptAllowed, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { fileUrl, dirSegment, compareStepDiffsPayload, parseStepPromptBody, baselineCandidates, compareCandidates, planStepPrompt, buildRunIndex, buildRunDetail, isPromptAllowed, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
+import { buildStepPrompt } from "./stepPrompt";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, rollbackBaseline, type Manifest } from "./baselines";
 import type { Summary } from "./types";
 import { compareRuns } from "./compareRuns";
@@ -83,13 +84,6 @@ function currentIndex(o: DashboardOpts): RunIndexEntry[] {
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-
-// A run-dir URL segment must be a single, non-dotted path component.
-function dirSegment(raw: string): string | null {
-  const name = safeDecode(raw);
-  if (!name || name.includes("/") || name.includes("..") || name.startsWith(".")) return null;
-  return name;
-}
 
 const CLI_PATH = join(import.meta.dir, "cli.ts");
 const CLIENT_JS_PATH = join(import.meta.dir, "dashboardClient.js");
@@ -206,8 +200,9 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         const { diffPng, aTarget, bTarget, stepDiffs, ...rest } = res.result;
         return json({
           ...rest,
-          // Same shape as before: the per-step PNG buffers and run-relative paths stay server-side.
-          stepDiffs: stepDiffs.map((s) => ({ name: s.name, mismatchPercent: s.mismatchPercent, verdict: s.verdict })),
+          // Step images are URLs (the diff inline); PNG buffers and run-relative paths stay server-side.
+          stepDiffs: compareStepDiffsPayload(stepDiffs, aDir, bDir),
+          promptAllowed: isPromptAllowed(req.headers.get("tailscale-user-login")),
           before: aDir,
           after: bDir,
           images: {
@@ -216,6 +211,60 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
             diff: "data:image/png;base64," + diffPng.toString("base64"),
           },
         });
+      }
+
+      // POST /api/step-prompt — the agent prompt for the steps the user marked. It holds absolute
+      // paths, so it is only for the machine running the dashboard, never for `tailscale serve`.
+      if (req.method === "POST" && url.pathname === "/api/step-prompt") {
+        if (!isPromptAllowed(req.headers.get("tailscale-user-login"))) {
+          return json({ error: "Copy prompt is available only on the machine running the dashboard." }, 403);
+        }
+        let raw: unknown;
+        try {
+          raw = await req.json();
+        } catch {
+          return json({ error: "expected a JSON body" }, 400);
+        }
+        const parsed = parseStepPromptBody(raw);
+        if (!parsed.ok) return json({ error: parsed.message }, 400);
+        const body = parsed.body;
+        const paths = { rootDir: o.rootDir, outDirAbs: o.outDirAbs, outDirRel: relative(o.rootDir, o.outDirAbs) };
+        const exists = (abs: string): boolean => existsSync(abs);
+
+        if (body.mode === "baseline") {
+          const afterDirAbs = join(o.outDirAbs, body.dir!);
+          if (!existsSync(afterDirAbs)) return json({ error: "run dir not found" }, 404);
+          const afterSummary = readSummary(afterDirAbs);
+          if (!afterSummary) return json({ error: "run has no readable summary.json" }, 404);
+          const afterRun = afterSummary.runs.find((r) => r.name === body.name);
+          if (!afterRun) return json({ error: `the run has no comparison named ${body.name}` }, 400);
+          const base = baselineCandidates(afterRun, afterDirAbs, loadManifest(o), paths, exists);
+          const plan = planStepPrompt({
+            mode: "baseline", name: body.name, picks: body.picks, hideBelow: body.hideBelow,
+            candidates: base.candidates, afterRun, afterSummary, afterDirAbs,
+            beforeLabel: base.beforeLabel, warning: base.warning, rootDir: o.rootDir, cliPath: CLI_PATH,
+          });
+          if (!plan.ok) return json({ error: plan.message }, 400);
+          return json({ text: buildStepPrompt(plan.input) });
+        }
+
+        const aAbs = join(o.outDirAbs, body.a!);
+        const bAbs = join(o.outDirAbs, body.b!);
+        if (!existsSync(aAbs) || !existsSync(bAbs)) return json({ error: "run dir not found" }, 404);
+        const aSum = readSummary(aAbs);
+        const bSum = readSummary(bAbs);
+        if (!aSum || !bSum) return json({ error: "both runs need a readable summary.json" }, 404);
+        const res = compareRuns({ a: { dir: aAbs, summary: aSum }, b: { dir: bAbs, summary: bSum }, name: body.name });
+        if (!res.ok) return json({ error: res.message }, 400);
+        const afterRun = bSum.runs.find((r) => r.name === body.name);
+        if (!afterRun) return json({ error: `the after run has no comparison named ${body.name}` }, 400);
+        const plan = planStepPrompt({
+          mode: "compare", name: body.name, picks: body.picks, hideBelow: body.hideBelow,
+          candidates: compareCandidates(res.result.stepDiffs, aAbs, bAbs), afterRun, afterSummary: bSum, afterDirAbs: bAbs,
+          beforeLabel: aAbs, rootDir: o.rootDir, cliPath: CLI_PATH, compareBeforeDirAbs: aAbs,
+        });
+        if (!plan.ok) return json({ error: plan.message }, 400);
+        return json({ text: buildStepPrompt(plan.input) });
       }
 
       // Mismatch trend per comparison name, from the existing summary.json files.
