@@ -260,7 +260,7 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         if (!afterRun) return json({ error: `the after run has no comparison named ${body.name}` }, 400);
         const plan = planStepPrompt({
           mode: "compare", name: body.name, picks: body.picks, hideBelow: body.hideBelow,
-          candidates: compareCandidates(res.result.stepDiffs, aAbs, bAbs), afterRun, afterSummary: bSum, afterDirAbs: bAbs,
+          candidates: compareCandidates(res.result.stepDiffs, aAbs, bAbs, exists), afterRun, afterSummary: bSum, afterDirAbs: bAbs,
           beforeLabel: aAbs, rootDir: o.rootDir, cliPath: CLI_PATH, compareBeforeDirAbs: aAbs,
         });
         if (!plan.ok) return json({ error: plan.message }, 400);

@@ -322,20 +322,31 @@ export function baselineCandidates(
   return { candidates, beforeLabel: label, ...(resolved.warning ? { warning: resolved.warning } : {}) };
 }
 
-// Compare mode: both runs' shots were already read by compareRuns, so the paths exist.
-// There is no diff file on disk (the Compare panel writes none).
+// Compare mode: compareRuns reads both shots only for steps present on both sides, so a new
+// step's after image and a missing step's before image are checked here. There is no diff file
+// on disk (the Compare panel writes none).
 export function compareCandidates(
   stepDiffs: { name: string; mismatchPercent: number; verdict: StepDiffVerdict; aRel?: string; bRel?: string }[],
   aDirAbs: string,
   bDirAbs: string,
+  exists: (abs: string) => boolean,
 ): PromptCandidate[] {
-  return stepDiffs.map((s) => ({
-    name: s.name,
-    verdict: s.verdict,
-    mismatchPercent: s.mismatchPercent,
-    ...(s.aRel !== undefined && safeChildPath(aDirAbs, s.aRel) ? { before: safeChildPath(aDirAbs, s.aRel)! } : {}),
-    ...(s.bRel !== undefined && safeChildPath(bDirAbs, s.bRel) ? { after: safeChildPath(bDirAbs, s.bRel)! } : {}),
-  }));
+  const inRun = (dirAbs: string, rel: string | undefined): string | undefined => {
+    if (rel === undefined) return undefined;
+    const abs = safeChildPath(dirAbs, rel);
+    return abs && exists(abs) ? abs : undefined;
+  };
+  return stepDiffs.map((s) => {
+    const before = inRun(aDirAbs, s.aRel);
+    const after = inRun(bDirAbs, s.bRel);
+    return {
+      name: s.name,
+      verdict: s.verdict,
+      mismatchPercent: s.mismatchPercent,
+      ...(before ? { before } : {}),
+      ...(after ? { after } : {}),
+    };
+  });
 }
 
 export interface PlanPromptInput {
