@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseCli } from "./args";
+import { argvTokens, parseCli } from "./args";
 
 describe("parseCli", () => {
   it("parses flags and positionals", () => {
@@ -25,5 +25,23 @@ describe("parseCli", () => {
   });
   it("turns a missing option value into a message", () => {
     expect(parseCli(["--target"]).ok).toBe(false);
+  });
+});
+
+describe("argvTokens", () => {
+  it("marks positionals and options by argv index", () => {
+    const t = argvTokens(["--name", "before", "after", "x"])!;
+    expect(t.filter((x) => x.kind === "positional").map((x) => x.index)).toEqual([2, 3]);
+    const opt = t.find((x) => x.kind === "option")!;
+    expect(opt.name).toBe("name");
+    expect(opt.index).toBe(0);
+    expect(opt.span).toBe(2);
+  });
+  it("gives inline and boolean options a span of 1", () => {
+    const t = argvTokens(["--out=o", "--json"])!;
+    expect(t.map((x) => [x.name, x.index, x.span])).toEqual([["out", 0, 1], ["json", 1, 1]]);
+  });
+  it("returns null when parsing fails", () => {
+    expect(argvTokens(["--nope"])).toBeNull();
   });
 });

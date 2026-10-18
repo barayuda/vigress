@@ -49,3 +49,30 @@ export function parseCli(argv: string[]) {
     return { ok: false as const, message: `vigress: ${e instanceof Error ? e.message.replace(/\s*\n\s*/g, " ") : String(e)}` };
   }
 }
+
+export interface ArgvToken {
+  kind: "option" | "positional";
+  name?: string; // option name, without the dashes
+  index: number; // position in argv
+  span: number; // how many argv entries it uses: 2 for `--x value`, 1 otherwise
+}
+
+// Where each option and positional sits in argv, so a caller can drop or rewrite a
+// single one without guessing from the text (a value can look like a flag or a command).
+// null when argv doesn't parse. An option terminator (`--`) is not reported.
+export function argvTokens(argv: string[]): ArgvToken[] | null {
+  try {
+    const { tokens } = parseArgs({ args: argv, allowPositionals: true, options: OPTIONS, tokens: true });
+    const out: ArgvToken[] = [];
+    for (const t of tokens) {
+      if (t.kind === "positional") out.push({ kind: "positional", index: t.index, span: 1 });
+      else if (t.kind === "option") {
+        const separateValue = t.value !== undefined && !t.inlineValue;
+        out.push({ kind: "option", name: t.name, index: t.index, span: separateValue ? 2 : 1 });
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
