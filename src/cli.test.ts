@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SCHEMA_VERSION } from "./types";
 
 // The CLI as a user runs it, for everything that needs no browser: every subcommand is
 // reachable through the dispatch table in cli.ts and fails with the right usage and exit
@@ -45,4 +46,10 @@ describe("cli dispatch", () => {
     });
   }
   it("cleans up", () => rmSync(dir, { recursive: true, force: true }));
+});
+
+describe("summary schema", () => {
+  it("schema is v11", () => {
+    expect(SCHEMA_VERSION).toBe(11);
+  });
 });

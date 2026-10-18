@@ -720,12 +720,12 @@ functionality: X/Y checks passed
 
 where `X` is the count of `ok` check-steps and `Y` is the total check-steps.
 
-### New outputs (schemaVersion 6 / 7 / 8 / 9 / 10)
+### New outputs (schemaVersion 6 / 7 / 8 / 9 / 10 / 11)
 
-`summary.json` and the `--json` payload are **`schemaVersion: 10`** (v5
+`summary.json` and the `--json` payload are **`schemaVersion: 11`** (v5
 added `regions[].styleDiff`; v6 added the `assert` step action; v7 added
 `targetUrl`, `stepDiffs`, `bootstrap`, and made `baseline`/`diff`/mismatch
-fields optional; v8 added `fullPage`; v9 added `heightDelta`; v10 added `git`). Each run entry adds:
+fields optional; v8 added `fullPage`; v9 added `heightDelta`; v10 added `git`; v11 added `invocation` and `baselineRef`). Each run entry adds:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -760,10 +760,11 @@ video. It references the artifacts by relative path, so open it directly
 **`summary.json`** (artifact paths are **relative** to `outDir`):
 ```json
 {
-  "schemaVersion": 10,
+  "schemaVersion": 11,
   "outDir": "/abs/path/out",
   "reportHtml": "report.html",
   "summaryJson": "summary.json",
+  "invocation": { "cwd": "/abs/path/project", "argv": ["after", "contact", "--state", "auth.state.json"] },
   "runs": [
     {
       "name": "contact",
@@ -791,6 +792,8 @@ video. It references the artifacts by relative path, so open it directly
 }
 ```
 
+**v11 schema changes** (from v10): `summary.json` and the `--json` payload gain a top-level `invocation` object — `{ cwd, argv }` — recording how the run was made: the absolute working directory and the raw command-line arguments after the script path, unchanged (`vigress after home` records `["after", "home", …]`). The state file appears only as the path given to `--state`; its contents are never read into the summary. It is absent only on pre-v11 summaries. Each `RunResult` may also carry `baselineRef` — `{ name, approvedAt }` — the approved baseline version a `baseline:` run diffed against; it is absent on bootstrap runs and on runs that do not use a `baseline:` reference.
+
 **v10 schema changes** (from v9): `summary.json` and the `--json` payload gain a top-level `git` object — `{ commit, branch?, dirty, url? }` — describing the git repo in the working directory the run was started from: the full commit sha, the branch (absent on a detached HEAD), whether there were uncommitted changes, and, when `origin` is a GitHub remote, the GitHub commit page (which also lists the pull requests that commit belongs to). It is absent outside a git repo. Nothing is sent anywhere: it is read from local `git`. The dashboard shows it on each run as `branch@abc1234`, linked to the commit, and only ever links an exact `https://github.com/<owner>/<repo>/commit/<sha>` URL.
 
 **v9 schema changes** (from v8): each `RunResult` may carry `heightDelta` (number, px) — target PNG height minus baseline PNG height, present only when non-zero. The pixel diff crops both images to the shorter one, so this is how much of the page went uncompared. Gate on it with `--max-height-delta`.
@@ -810,8 +813,9 @@ shape as `summary.json` but with **absolute** artifact paths, ready to read:
 bun run src/cli.ts --target … --against … --state auth.state.json --json --quiet
 ```
 ```json
-{ "schemaVersion": 10, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
+{ "schemaVersion": 11, "outDir": "/abs/out", "reportHtml": "/abs/out/report.html",
   "summaryJson": "/abs/out/summary.json",
+  "invocation": { "cwd": "/abs/project", "argv": ["--target", "…", "--against", "…"] },
   "runs": [ { "name": "contact", "baselineType": "url", "viewport": {"width":1440,"height":900},
               "mismatchPixels": 12345, "mismatchPercent": 4.2,
               "target": "/abs/out/contact.target.png", "targetUrl": "https://localhost:3000/contact",

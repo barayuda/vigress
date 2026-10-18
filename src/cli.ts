@@ -25,7 +25,8 @@ const COMMANDS: Record<string, (ctx: Ctx) => Promise<number>> = {
   dashboard: dashboardCommand,
 };
 
-const parsed = parseCli(Bun.argv.slice(2));
+const argv = Bun.argv.slice(2);
+const parsed = parseCli(argv);
 if (!parsed.ok) {
   process.stderr.write(parsed.message + "\n");
   process.exit(2);
@@ -34,7 +35,7 @@ const { values, positionals } = parsed;
 const name = positionals[0];
 const command = name !== undefined && Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : runCommand;
 
-command({ values, positionals }).then((code) => process.exit(code)).catch((err) => {
+command({ values, positionals, argv }).then((code) => process.exit(code)).catch((err) => {
   process.stderr.write(`vigress error: ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });

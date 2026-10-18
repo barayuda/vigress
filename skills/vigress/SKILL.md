@@ -120,9 +120,10 @@ sections that leave the viewport). Other scroll-reveal libraries are not handled
 
 ## For AI agents
 
-`--json` prints one object `{ schemaVersion: 10, outDir, reportHtml, git?:{commit,branch?,dirty,url?},
+`--json` prints one object `{ schemaVersion: 11, outDir, reportHtml, git?:{commit,branch?,dirty,url?},
+invocation?:{cwd,argv:[]},
 runs:[{ name, baselineType, viewport, mismatchPixels?, mismatchPercent?, heightDelta?,
-target, targetUrl, fullPage?, baseline?, diff?, video?, bootstrap?,
+target, targetUrl, fullPage?, baseline?, diff?, video?, bootstrap?, baselineRef?:{name,approvedAt},
 mode, shots:[], steps:[{index,action,selector?,check,status,error?}],
 stepDiffs:[{name,mismatchPercent,diff?,verdict:"ok"|"mismatch"|"new"|"missing"}],
 regions:[{name,mismatchPercent,verdict,reason,diff,styleDiff?:[{property,target,baseline,match}]}],
@@ -132,6 +133,7 @@ checklist:[{aspect,region,verdict,workaround}] }] }` with absolute paths.
   and `mismatchPercent` are absent — the run captured and approved but had
   nothing to diff against.
 - `stepDiffs[]` is populated only for `baseline:` runs with approved step shots.
+- `invocation` is how the run was made (absolute `cwd` plus the raw `argv`); `baselineRef` names the approved baseline version a `baseline:` run diffed against (absent on bootstrap runs).
 - `--quiet` suppresses the log lines.
 
 ### Gates and exit codes

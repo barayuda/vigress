@@ -6,7 +6,8 @@ import type { StyleDiffEntry } from "./style";
 // v8: RunResult.fullPage — lets `approve` record the capture mode in the manifest.
 // v9: RunResult.heightDelta — target height minus baseline height when they differ.
 // v10: Summary.git — the commit/branch the run was started from.
-export const SCHEMA_VERSION = 10;
+// v11: Summary.invocation (cwd + argv) and RunResult.baselineRef (name + approvedAt) — how a run was made.
+export const SCHEMA_VERSION = 11;
 
 // Where a run was started from (the git repo in the working directory), so a run can be
 // tied back to a commit and, through its GitHub page, to a pull request.
@@ -63,6 +64,20 @@ export interface StepDiff {
   verdict: StepDiffVerdict;
 }
 
+// How a run was started: the working directory and the raw CLI arguments after the script
+// path (so `vigress after home` records ["after", "home", …]). The state file appears only
+// as the path given to --state; its contents are never read into the summary.
+export interface Invocation {
+  cwd: string; // absolute
+  argv: string[];
+}
+
+// The approved baseline version a run diffed against.
+export interface BaselineRef {
+  name: string; // the baseline: ref name
+  approvedAt: string; // ISO timestamp of the approved entry
+}
+
 export interface RunResult {
   name: string;
   baselineType: BaselineType;
@@ -87,6 +102,7 @@ export interface RunResult {
   shots: Shot[]; // [] unless screenshot steps ran
   steps: StepResult[]; // [] for static/explore
   stepDiffs: StepDiff[]; // [] unless a baseline: run with approved step shots
+  baselineRef?: BaselineRef; // absent on bootstrap runs and on non-baseline: runs
 }
 
 export interface Summary {
@@ -95,5 +111,6 @@ export interface Summary {
   reportHtml: string;
   summaryJson: string;
   git?: GitInfo; // absent outside a git repo
+  invocation?: Invocation; // absent only on pre-v11 summaries
   runs: RunResult[];
 }

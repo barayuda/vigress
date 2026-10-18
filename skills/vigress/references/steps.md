@@ -44,7 +44,7 @@ CLI form: `--step "action=assert;selector=[role=dialog];state=visible"`.
 
 ### Per-step pass/fail results
 
-Each step reports a result. `summary.json` and `--json` are **schemaVersion 10**
+Each step reports a result. `summary.json` and `--json` are **schemaVersion 11**
 and include `mode`, `shots[]`, `steps[]`, and `stepDiffs[]` on each run entry.
 The `steps[]` shape is `{index, action, selector?, check, status:"ok"|"failed", error?}`:
 

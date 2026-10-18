@@ -49,7 +49,7 @@ function mergeChecklist(items: ChecklistItem[], regions: RegionScore[]): Checkli
 }
 
 // The normal run: one comparison, or a batch from --config (also `before` / `after`).
-export async function runCommand({ values, positionals }: Ctx): Promise<number> {
+export async function runCommand({ values, positionals, argv }: Ctx): Promise<number> {
   // before / after: a normal single run with options filled in from the baseline (see beforeAfter.ts).
   const beforeAfter = positionals[0] === "before" || positionals[0] === "after" ? positionals[0] : undefined;
   if (beforeAfter) {
@@ -100,7 +100,7 @@ export async function runCommand({ values, positionals }: Ctx): Promise<number> 
   // Resolve baseline: refs up front — pure guards, no browser needed, fail fast.
   const manifestFile = resolve(MANIFEST_PATH);
   const manifest = existsSync(manifestFile) ? parseManifest(readFileSync(manifestFile, "utf8")) : null;
-  const approvedByRun = new Map<string, ManifestEntry>();
+  const approvedByRun = new Map<string, { entry: ManifestEntry; ref: string }>();
   const bootstrapRuns = new Set<string>();
   for (const spec of runs) {
     if (spec.baselineType !== "baseline") continue;
@@ -123,7 +123,7 @@ export async function runCommand({ values, positionals }: Ctx): Promise<number> 
       process.stderr.write(`vigress: approved baseline artifacts missing for '${refName}' (${res.entry.artifacts.main} deleted?) — re-approve or run with --update-baseline\n`);
       return 1;
     }
-    approvedByRun.set(spec.name, res.entry);
+    approvedByRun.set(spec.name, { entry: res.entry, ref: refName });
   }
 
   const browser = await launchBrowser();
@@ -194,7 +194,7 @@ export async function runCommand({ values, positionals }: Ctx): Promise<number> 
         let baselineStyles: Record<string, StyleValues> = {};
         if (spec.baselineType === "baseline") {
           // Approved image baseline: no DOM to probe, like image/figma.
-          await imageSource(approved!.artifacts.main, join(outDir, baselineRel));
+          await imageSource(approved!.entry.artifacts.main, join(outDir, baselineRel));
         } else {
           const resolved = await resolveBaseline(
             spec, ctx, join(outDir, baselineRel), process.env, baselineItems, baselineStyleItems, opts.statePath,
@@ -259,7 +259,7 @@ export async function runCommand({ values, positionals }: Ctx): Promise<number> 
       if (approved) {
         stepDiffs = diffShots({
           shots,
-          approvedSteps: approved.artifacts.steps,
+          approvedSteps: approved.entry.artifacts.steps,
           outDir,
           name: spec.name,
           threshold: opts.threshold,
@@ -295,6 +295,7 @@ export async function runCommand({ values, positionals }: Ctx): Promise<number> 
         shots,
         steps: stepResults,
         stepDiffs,
+        baselineRef: approved ? { name: approved.ref, approvedAt: approved.entry.approvedAt } : undefined,
       });
       const ss = stepSummary(stepResults);
       const stepsNote = mode === "steps" ? ` · steps ${ss.ok}/${ss.total} ok` : "";
@@ -316,6 +317,7 @@ export async function runCommand({ values, positionals }: Ctx): Promise<number> 
     reportHtml: "report.html",
     summaryJson: "summary.json",
     ...(gitInfo ? { git: gitInfo } : {}),
+    invocation: { cwd: process.cwd(), argv },
     runs: results,
   };
   writeReport(summary);

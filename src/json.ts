@@ -10,6 +10,7 @@ export function buildJsonPayload(summary: Summary): object {
     reportHtml: abs(summary.reportHtml),
     summaryJson: abs(summary.summaryJson),
     git: summary.git,
+    invocation: summary.invocation,
     runs: summary.runs.map((r) => ({
       name: r.name,
       baselineType: r.baselineType,
@@ -24,6 +25,7 @@ export function buildJsonPayload(summary: Summary): object {
       diff: r.diff ? abs(r.diff) : undefined,
       video: r.video ? abs(r.video) : undefined,
       bootstrap: r.bootstrap,
+      baselineRef: r.baselineRef,
       regions: r.regions.map((rg) => ({
         name: rg.name,
         mismatchPixels: rg.mismatchPixels,

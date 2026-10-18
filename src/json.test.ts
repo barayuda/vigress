@@ -28,6 +28,23 @@ describe("buildJsonPayload", () => {
   });
 });
 
+describe("buildJsonPayload invocation + baselineRef", () => {
+  it("carries invocation and baselineRef through unchanged", () => {
+    const invocation = { cwd: "/repo", argv: ["after", "home", "--state", "a.state.json"] };
+    const baselineRef = { name: "home", approvedAt: "2026-10-01T00:00:00.000Z" };
+    const s: Summary = { ...summary, invocation, runs: [{ ...summary.runs[0], baselineRef }] };
+    const p = buildJsonPayload(s) as any;
+    expect(p.invocation).toEqual(invocation);
+    expect(p.runs[0].baselineRef).toEqual(baselineRef);
+  });
+
+  it("leaves invocation undefined for pre-v11 summaries", () => {
+    const p = buildJsonPayload(summary) as any;
+    expect(p.invocation).toBeUndefined();
+    expect(p.runs[0].baselineRef).toBeUndefined();
+  });
+});
+
 describe("buildJsonPayload regions + checklist", () => {
   it("includes region scores (absolute diff paths) and the checklist", () => {
     const s: Summary = {

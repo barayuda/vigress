@@ -6,4 +6,5 @@ export type CliValues = Parsed["values"];
 export interface Ctx {
   values: CliValues;
   positionals: string[];
+  argv: string[]; // the raw CLI arguments after the script path
 }

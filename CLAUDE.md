@@ -72,7 +72,7 @@ The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `ou
 
 ### The JSON contract (three places to keep in sync)
 
-`SCHEMA_VERSION` lives in `src/types.ts` (currently **10**). `summary.json` uses paths relative to `outDir`; the `--json` stdout payload is the same shape with **absolute** paths (built in `json.ts`). When you change the output shape (including adding a step-action enum value):
+`SCHEMA_VERSION` lives in `src/types.ts` (currently **11**). `summary.json` uses paths relative to `outDir`; the `--json` stdout payload is the same shape with **absolute** paths (built in `json.ts`). When you change the output shape (including adding a step-action enum value):
 
 1. Bump `SCHEMA_VERSION` in `src/types.ts`.
 2. Update the README's schema docs (it has drifted before).
