@@ -9,7 +9,25 @@ describe("shellQuote", () => {
     expect(shellQuote("a b")).toBe("'a b'");
     expect(shellQuote("it's")).toBe("'it'\\''s'");
     expect(shellQuote("")).toBe("''");
+    expect(shellQuote("$HOME")).toBe("'$HOME'");
+    expect(shellQuote("a$b")).toBe("'a$b'");
   });
+  it("quotes an arg that starts with = (zsh expands =cmd to a path)", () => {
+    expect(shellQuote("=x")).toBe("'=x'");
+    expect(shellQuote("=")).toBe("'='");
+    expect(shellQuote("a=b")).toBe("a=b");
+  });
+  // Each quoted arg, given to a real shell, must come back exactly as the original.
+  const ARGS = ["plain", "a b", "it's", "", "$HOME", "=ls", "a=b", "x;y", "`id`", "$(id)", "~", "*", "?a", "!x", "#c", "a\\b", "tab\there", "line\nbreak", "https://x.test/?a=1&b=2"];
+  const roundTrip = (shell: string): void => {
+    for (const arg of ARGS) {
+      const res = Bun.spawnSync([shell, "-c", `printf '%s\\n' ${shellQuote(arg)}`], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: "/home/nobody" } });
+      expect(res.exitCode).toBe(0);
+      expect(res.stdout.toString()).toBe(arg + "\n");
+    }
+  };
+  it("round-trips through sh", () => roundTrip("sh"));
+  it.skipIf(!Bun.which("zsh"))("round-trips through zsh", () => roundTrip("zsh"));
 });
 
 describe("buildRerunCommand", () => {
@@ -61,7 +79,7 @@ describe("buildRerunCommand", () => {
     )!;
     expect(cmd).toContain("--config p.fullcheck.json --state a.state.json");
   });
-  it("drops an inline --out=value style flag whole, and keeps inline values of others", () => {
+  it("keeps an inline --out=value as given, and drops --update-baseline", () => {
     const cmd = buildRerunCommand({ cwd: "/repo", argv: ["after", "home", "--out=o", "--update-baseline"] }, CLI)!;
     expect(cmd).toBe("cd /repo && bun run /opt/vigress/src/cli.ts after home --out=o --json");
   });

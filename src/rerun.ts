@@ -6,9 +6,10 @@ import type { Invocation } from "./types";
 
 const SAFE = /^[A-Za-z0-9_\/.:=,@%+-]+$/;
 
-// Safe for a POSIX shell: plain words pass through, anything else is single-quoted.
+// Safe for a POSIX shell and zsh: plain words pass through, anything else is single-quoted.
+// A leading "=" is quoted too, because zsh expands "=cmd" to the command's path.
 export function shellQuote(arg: string): string {
-  return SAFE.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
+  return SAFE.test(arg) && !arg.startsWith("=") ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
 // The environment variables that change how a run captures or where it writes. A re-run needs
