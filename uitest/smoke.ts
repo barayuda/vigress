@@ -65,10 +65,12 @@ let manifest = upsertBaseline(emptyManifest(), "contact", entry("2026-10-01_a", 
 manifest = upsertBaseline(manifest, "contact", entry("2026-10-03_c", "contact", "2026-10-03T00:00:00Z"));
 writeManifest(join(repo, "baselines", "manifest.json"), manifest);
 
-// ---- step review: an approved "flow" baseline with three step shots, and a run against it --
-// s1 changed (3%, but verdict "ok": cards go by mismatchPercent, not verdict), s2 barely (0.05%,
-// under the default hide-below of 0.1%), s3 is missing from the after run. Seeded late, so the
-// earlier checks see the run list they expect.
+/**
+ * ---- step review: an approved "flow" baseline with three step shots, and a run against it --
+ * s1 changed (3%, but verdict "ok": cards go by mismatchPercent, not verdict), s2 barely (0.05%,
+ * under the default hide-below of 0.1%), s3 is missing from the after run. Seeded late, so the
+ * earlier checks see the run list they expect.
+ */
 const FLOW_BASE = "2026-10-07_flowbase";
 const FLOW_AFTER = "2026-10-08_flowafter";
 const FLOW_APPROVED_AT = "2026-10-07T12:00:00.000Z";

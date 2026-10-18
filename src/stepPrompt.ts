@@ -6,15 +6,17 @@ import type { StepDiffVerdict } from "./types";
 
 export type KeepSide = "before" | "after";
 
-// Which sides can be kept: a missing step has no after image, a new step has no before image.
+/** Which sides can be kept: a missing step has no after image, a new step has no before image. */
 export function sidesFor(step: { verdict: StepDiffVerdict }): KeepSide[] {
   if (step.verdict === "missing") return ["before"];
   if (step.verdict === "new") return ["after"];
   return ["before", "after"];
 }
 
-// Cards are chosen by the mismatch percentage, never by `verdict === "mismatch"`, which
-// only appears when a --max-mismatch gate was set. new/missing steps always get a card.
+/**
+ * Cards are chosen by the mismatch percentage, never by `verdict === "mismatch"`, which
+ * only appears when a --max-mismatch gate was set. new/missing steps always get a card.
+ */
 export function isCardStep(step: { verdict: StepDiffVerdict; mismatchPercent: number }, hideBelow: number): boolean {
   if (step.verdict === "new" || step.verdict === "missing") return true;
   return step.mismatchPercent > hideBelow;
@@ -55,8 +57,10 @@ export interface StepPromptInput {
   baselineDrift?: "compare" | "images";
 }
 
-// Checks the user's picks against the steps that were offered. Server-side guard, so a
-// hand-made request can't ask for an image that doesn't exist.
+/**
+ * Checks the user's picks against the steps that were offered. Server-side guard, so a
+ * hand-made request can't ask for an image that doesn't exist.
+ */
 export function validatePicks(
   available: { name: string; verdict: StepDiffVerdict }[],
   picks: Record<string, KeepSide>,
@@ -82,7 +86,7 @@ const DRIFT_IMAGES =
 const DO_NOT_APPROVE =
   "Do not run `vigress approve`, `--update-baseline` or `vigress before`. Stop and tell me what you changed; I will approve it myself.";
 
-// Two decimals at most, no trailing zeros: 1.234 -> "1.23", 3 -> "3".
+/** Two decimals at most, no trailing zeros: 1.234 -> "1.23", 3 -> "3". */
 function pct(n: number): string {
   return String(Number(n.toFixed(2)));
 }

@@ -73,18 +73,22 @@ export function fileUrl(dirName: string, relPath: string): string {
   return "/files/" + [dirName, ...relPath.split("/")].map(encodeURIComponent).join("/");
 }
 
-// Maps a repo-root-relative artifact path from the manifest ("out/<dir>/<rest>") to the
-// /files/ URL for it. null when the path is not inside a run dir under the out dir (a
-// hand-edited manifest), so the page never gets a URL the server would refuse anyway.
+/**
+ * Maps a repo-root-relative artifact path from the manifest ("out/<dir>/<rest>") to the
+ * /files/ URL for it. null when the path is not inside a run dir under the out dir (a
+ * hand-edited manifest), so the page never gets a URL the server would refuse anyway.
+ */
 export function repoPathUrl(repoRel: string, outDirRel: string): string | null {
   const segments = outSegments(repoRel, outDirRel);
   if (!segments || segments.length < 2) return null;
   return fileUrl(segments[0], segments.slice(1).join("/"));
 }
 
-// The segments of a repo-relative path below the out dir, or null when it is not plainly
-// inside it (absolute, another prefix, or an empty, "." or ".." segment). An out dir that is
-// the repo root itself ("" or ".", from `dashboard --out .`) has no prefix.
+/**
+ * The segments of a repo-relative path below the out dir, or null when it is not plainly
+ * inside it (absolute, another prefix, or an empty, "." or ".." segment). An out dir that is
+ * the repo root itself ("" or ".", from `dashboard --out .`) has no prefix.
+ */
 function outSegments(repoRel: string, outDirRel: string): string[] | null {
   if (isAbsolute(repoRel)) return null;
   const out = outDirRel.replace(/\/+$/, "");
@@ -94,14 +98,18 @@ function outSegments(repoRel: string, outDirRel: string): string[] | null {
   return segments.some((s) => s === "" || s === "." || s === "..") ? null : segments;
 }
 
-// Prompts and absolute paths go only to requests that did not come through
-// `tailscale serve` (which adds the caller's login header).
+/**
+ * Prompts and absolute paths go only to requests that did not come through
+ * `tailscale serve` (which adds the caller's login header).
+ */
 export function isPromptAllowed(tailscaleLogin: string | null): boolean {
   return tailscaleLogin === null;
 }
 
-// What /files/ may serve. A run's summary.json holds the invocation (absolute cwd, argv with
-// URLs as given, env), so it goes only to local requests; the page never fetches it.
+/**
+ * What /files/ may serve. A run's summary.json holds the invocation (absolute cwd, argv with
+ * URLs as given, env), so it goes only to local requests; the page never fetches it.
+ */
 export function isFileAllowed(relPath: string, tailscaleLogin: string | null): boolean {
   if (tailscaleLogin === null) return true;
   return relPath.split("/").pop()?.toLowerCase() !== "summary.json";
@@ -109,9 +117,11 @@ export function isFileAllowed(relPath: string, tailscaleLogin: string | null): b
 
 export const BASELINE_CHANGED_WARNING = "the baseline changed after this run; before images may not be what this run was compared against";
 
-// Which approved version a run was compared against. A baseline can be re-approved after the
-// run, so look the run's recorded approvedAt up in the current entry, then in its history.
-// A pruned version (or a run that recorded none) falls back to the current entry, with a warning.
+/**
+ * Which approved version a run was compared against. A baseline can be re-approved after the
+ * run, so look the run's recorded approvedAt up in the current entry, then in its history.
+ * A pruned version (or a run that recorded none) falls back to the current entry, with a warning.
+ */
 export function resolveRunBaseline(
   manifest: Manifest | null,
   ref: BaselineRef | undefined,
@@ -215,15 +225,17 @@ export function buildRunDetail(summary: Summary, dirName: string, ctx: RunDetail
   });
 }
 
-// A run-dir URL segment must be a single, non-dotted path component.
+/** A run-dir URL segment must be a single, non-dotted path component. */
 export function dirSegment(raw: string): string | null {
   const name = safeDecode(raw);
   if (!name || name.includes("/") || name.includes("..") || name.startsWith(".")) return null;
   return name;
 }
 
-// The /api/compare step list: images as URLs (the diff inline, since compare writes no file),
-// and which sides can be marked. Buffers and run-relative paths never reach the JSON.
+/**
+ * The /api/compare step list: images as URLs (the diff inline, since compare writes no file),
+ * and which sides can be marked. Buffers and run-relative paths never reach the JSON.
+ */
 export function compareStepDiffsPayload(
   stepDiffs: { name: string; mismatchPercent: number; verdict: StepDiffVerdict; aRel?: string; bRel?: string; diffPng?: Buffer }[],
   aDir: string,
@@ -252,8 +264,10 @@ export interface StepPromptBody {
   hideBelow: number;
 }
 
-// Shape check of the POST /api/step-prompt body. Whether the picks make sense for the run is
-// checked later, against the steps the run actually has.
+/**
+ * Shape check of the POST /api/step-prompt body. Whether the picks make sense for the run is
+ * checked later, against the steps the run actually has.
+ */
 export function parseStepPromptBody(raw: unknown): { ok: true; body: StepPromptBody } | { ok: false; message: string } {
   if (typeof raw !== "object" || raw === null) return { ok: false, message: "expected a JSON object" };
   const b = raw as Record<string, unknown>;
@@ -284,8 +298,10 @@ export function parseStepPromptBody(raw: unknown): { ok: true; body: StepPromptB
   return { ok: true, body: { mode: "compare", a: a.value, b: after.value, name: b.name, picks, hideBelow: b.hideBelow } };
 }
 
-// One step as the prompt may use it. Paths are absolute and present only when the image
-// can actually be read, so a pick on a side without an image is refused.
+/**
+ * One step as the prompt may use it. Paths are absolute and present only when the image
+ * can actually be read, so a pick on a side without an image is refused.
+ */
 export interface PromptCandidate {
   name: string;
   verdict: StepDiffVerdict;
@@ -301,17 +317,21 @@ export interface PromptPaths {
   outDirRel: string;
 }
 
-// How the agent can check its work in baseline mode. The plain re-run (`after <name>` /
-// `--against baseline:<name>`) always diffs against the manifest's current entry, so it is a
-// valid check only when that entry is the version the before images come from.
-// "rerun": it is. "compare": diff the before version's run dir with the re-run instead.
-// "images": no command can check it; the agent compares the screenshots itself.
+/**
+ * How the agent can check its work in baseline mode. The plain re-run (`after <name>` /
+ * `--against baseline:<name>`) always diffs against the manifest's current entry, so it is a
+ * valid check only when that entry is the version the before images come from.
+ * "rerun": it is. "compare": diff the before version's run dir with the re-run instead.
+ * "images": no command can check it; the agent compares the screenshots itself.
+ */
 export type BaselineCheck = { kind: "rerun" } | { kind: "compare"; beforeDirAbs: string } | { kind: "images" };
 
-// `version` is the resolved before version (resolveRunBaseline). The re-run is not a valid
-// check when that version is not the current entry (re-approved or rolled back since the run,
-// or blessed by `--update-baseline` / `before` / Approve, which moved it into history), or when
-// the current entry was approved from this run itself (the re-run would diff against itself).
+/**
+ * `version` is the resolved before version (resolveRunBaseline). The re-run is not a valid
+ * check when that version is not the current entry (re-approved or rolled back since the run,
+ * or blessed by `--update-baseline` / `before` / Approve, which moved it into history), or when
+ * the current entry was approved from this run itself (the re-run would diff against itself).
+ */
 export function baselineCheck(
   run: RunResult,
   runDirAbs: string,
@@ -335,7 +355,7 @@ export function baselineCheck(
   return { kind: "images" };
 }
 
-// Baseline mode: before = the approved version's step image, after/diff = this run's files.
+/** Baseline mode: before = the approved version's step image, after/diff = this run's files. */
 export function baselineCandidates(
   run: RunResult,
   runDirAbs: string,
@@ -378,9 +398,11 @@ export function baselineCandidates(
   };
 }
 
-// Compare mode: compareRuns reads both shots only for steps present on both sides, so a new
-// step's after image and a missing step's before image are checked here. There is no diff file
-// on disk (the Compare panel writes none).
+/**
+ * Compare mode: compareRuns reads both shots only for steps present on both sides, so a new
+ * step's after image and a missing step's before image are checked here. There is no diff file
+ * on disk (the Compare panel writes none).
+ */
 export function compareCandidates(
   stepDiffs: { name: string; mismatchPercent: number; verdict: StepDiffVerdict; aRel?: string; bRel?: string }[],
   aDirAbs: string,
@@ -422,7 +444,7 @@ export interface PlanPromptInput {
   check?: BaselineCheck; // baseline mode only, from baselineCandidates; absent = the plain re-run is the check
 }
 
-// Turns the user's picks into the prompt input, or the reason they can't be used (a 400).
+/** Turns the user's picks into the prompt input, or the reason they can't be used (a 400). */
 export function planStepPrompt(i: PlanPromptInput): { ok: true; input: StepPromptInput } | { ok: false; message: string } {
   const valid = validatePicks(i.candidates, i.picks);
   if (!valid.ok) return valid;

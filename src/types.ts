@@ -64,9 +64,11 @@ export interface StepDiff {
   verdict: StepDiffVerdict;
 }
 
-// How a run was started: the working directory and the raw CLI arguments after the script
-// path (so `vigress after home` records ["after", "home", …]). The state file appears only
-// as the path given to --state; its contents are never read into the summary.
+/**
+ * How a run was started: the working directory and the raw CLI arguments after the script
+ * path (so `vigress after home` records ["after", "home", …]). The state file appears only
+ * as the path given to --state; its contents are never read into the summary.
+ */
 export interface Invocation {
   cwd: string; // absolute
   argv: string[];
@@ -76,7 +78,7 @@ export interface Invocation {
   env?: Record<string, string>;
 }
 
-// The approved baseline version a run diffed against.
+/** The approved baseline version a run diffed against. */
 export interface BaselineRef {
   name: string; // the baseline: ref name
   approvedAt: string; // ISO timestamp of the approved entry

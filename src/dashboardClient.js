@@ -22,15 +22,19 @@ function filterQuery() {
   return p.toString();
 }
 
-// True while the user is typing in a run's step review (the prompt box or the hide-below
-// input): re-rendering the run list then would take their focus and selection away.
+/**
+ * True while the user is typing in a run's step review (the prompt box or the hide-below
+ * input): re-rendering the run list then would take their focus and selection away.
+ */
 function typingInStepReview() {
   const a = document.activeElement;
   return !!a && (a.tagName === "TEXTAREA" || a.tagName === "INPUT") && !!a.closest("#runs .steprev");
 }
 
-// force=false (auto-refresh) skips the re-render when nothing changed, and while the user is
-// typing in a step review (lastJson is left alone, so a later tick catches up).
+/**
+ * force=false (auto-refresh) skips the re-render when nothing changed, and while the user is
+ * typing in a step review (lastJson is left alone, so a later tick catches up).
+ */
 async function load(force = true) {
   const text = await (await fetch("/api/runs?" + filterQuery())).text();
   if (force || (text !== lastJson && !typingInStepReview())) {
@@ -98,10 +102,12 @@ function renderViewer(images) {
   return box;
 }
 
-// --- step review: mark each changed step screenshot "keep before" (a regression: fix the app)
-// or "keep after" (intended: don't undo it), then copy one prompt for the agent. ---
-// State lives here, keyed by "run:<dir>:<name>" or "cmp:<a>:<b>:<name>", so the auto-refresh
-// re-render and a repeated Compare keep it.
+/**
+ * --- step review: mark each changed step screenshot "keep before" (a regression: fix the app)
+ * or "keep after" (intended: don't undo it), then copy one prompt for the agent. ---
+ * State lives here, keyed by "run:<dir>:<name>" or "cmp:<a>:<b>:<name>", so the auto-refresh
+ * re-render and a repeated Compare keep it.
+ */
 const DEFAULT_HIDE_BELOW = 0.1; // %, display-only
 const stepPicks = new Map(); // key -> Map(step -> "before" | "after")
 const stepHideBelow = new Map(); // key -> number
@@ -111,11 +117,11 @@ const stepPromptSeq = new Map(); // key -> latest prompt request, so a slow olde
 const stepReviewLive = new Map(); // key -> redraw of the newest render (an answer can land after a re-render)
 const brokenImages = new Set(); // image URLs that failed to load: their side is never offered
 
-// Mirrors isCardStep in src/stepPrompt.ts: by mismatch %, never by verdict; new/missing always.
+/** Mirrors isCardStep in src/stepPrompt.ts: by mismatch %, never by verdict; new/missing always. */
 const isCardStep = (d, hideBelow) => d.verdict === "new" || d.verdict === "missing" || d.mismatchPercent > hideBelow;
 const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
 
-// ctx: { key, stepDiffs, promptAllowed, baselineWarning?, promptBody: (picks, hideBelow) => object }
+/** ctx: { key, stepDiffs, promptAllowed, baselineWarning?, promptBody: (picks, hideBelow) => object } */
 function renderStepReview(container, ctx) {
   const key = ctx.key;
   if (!stepPicks.has(key)) stepPicks.set(key, new Map());

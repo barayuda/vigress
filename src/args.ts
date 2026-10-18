@@ -57,9 +57,11 @@ export interface ArgvToken {
   span: number; // how many argv entries it uses: 2 for `--x value`, 1 otherwise
 }
 
-// Where each option and positional sits in argv, so a caller can drop or rewrite a
-// single one without guessing from the text (a value can look like a flag or a command).
-// null when argv doesn't parse. An option terminator (`--`) is not reported.
+/**
+ * Where each option and positional sits in argv, so a caller can drop or rewrite a
+ * single one without guessing from the text (a value can look like a flag or a command).
+ * null when argv doesn't parse. An option terminator (`--`) is not reported.
+ */
 export function argvTokens(argv: string[]): ArgvToken[] | null {
   try {
     const { tokens } = parseArgs({ args: argv, allowPositionals: true, options: OPTIONS, tokens: true });
