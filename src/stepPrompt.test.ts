@@ -214,3 +214,40 @@ describe("buildStepPrompt", () => {
     expect(buildStepPrompt(fixture({ hideBelow: 0.25 }))).toContain("at or below 0.25%");
   });
 });
+
+describe("buildStepPrompt when the re-run would use a different baseline version", () => {
+  const CMP = "cd /abs/app && bun run /abs/vigress/src/cli.ts compare /abs/out/2026-09-30 <outDir from the re-run JSON> --name booking --json";
+
+  it("baseline mode, compare: prints the compare line, says the re-run's stepDiffs are not the check, and points Done at the compare output", () => {
+    const t = buildStepPrompt(fixture({ baselineDrift: "compare", compareCheck: CMP }));
+    expect(t).toContain("  cd /abs/app && bun run /abs/vigress/src/cli.ts after booking --json");
+    expect(t).toContain(`  ${CMP}`);
+    expect(t).toContain("The re-run's own stepDiffs are not the check here");
+    expect(t).toContain("Done means: every FIX step's mismatchPercent in the compare output is at or below 0.1%");
+    expect(t.endsWith(END)).toBe(true);
+  });
+
+  it("baseline mode, images: warns, and replaces the stepDiffs Done rule with comparing the screenshots", () => {
+    const t = buildStepPrompt(fixture({ baselineDrift: "images" }));
+    expect(t).toContain("the re-run would compare against a different baseline version than these before images");
+    expect(t).not.toContain("mismatchPercent is at or below");
+    expect(t).toContain("compare your new after screenshots with the before images listed above");
+    expect(t).toContain("every KEEP step still looks like its after screenshot");
+    expect(t).not.toContain("vigress compare");
+    expect(t.endsWith(END)).toBe(true);
+  });
+
+  it("falls back to the images wording when compare is asked for without a compare command", () => {
+    const t = buildStepPrompt(fixture({ baselineDrift: "compare" }));
+    expect(t).toContain("the re-run would compare against a different baseline version");
+    expect(t).not.toContain("stepDiffs are not the check here");
+    expect(t).not.toContain("mismatchPercent");
+  });
+
+  it("is unchanged without baselineDrift", () => {
+    const t = buildStepPrompt(fixture());
+    expect(t).not.toContain("stepDiffs are not the check");
+    expect(t).not.toContain("different baseline version");
+    expect(t).toContain("Done means: every FIX step's mismatchPercent is at or below 0.1% (a FIX step that was missing is present again), and every KEEP step still looks like its after screenshot.");
+  });
+});

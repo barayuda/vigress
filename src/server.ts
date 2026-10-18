@@ -242,7 +242,7 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
           const plan = planStepPrompt({
             mode: "baseline", name: body.name, picks: body.picks, hideBelow: body.hideBelow,
             candidates: base.candidates, afterRun, afterSummary, afterDirAbs,
-            beforeLabel: base.beforeLabel, warning: base.warning, rootDir: o.rootDir, cliPath: CLI_PATH,
+            beforeLabel: base.beforeLabel, warning: base.warning, check: base.check, rootDir: o.rootDir, cliPath: CLI_PATH,
           });
           if (!plan.ok) return json({ error: plan.message }, 400);
           return json({ text: buildStepPrompt(plan.input) });

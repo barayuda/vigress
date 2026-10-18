@@ -44,8 +44,15 @@ export interface StepPromptInput {
   hideBelow: number;
   // From buildRerunCommand; null when the run can't be reproduced safely.
   rerun: string | null;
-  // From buildCompareCheckCommand; only printed in compare mode.
+  // From buildCompareCheckCommand; printed in compare mode, and in baseline mode when
+  // baselineDrift is "compare".
   compareCheck?: string;
+  // Baseline mode only. Set when the plain re-run would diff against a different baseline
+  // version than the before images (the baseline was re-approved or rolled back since the
+  // run, or this run blessed itself), so its stepDiffs are not a valid check.
+  // "compare": compareCheck diffs the before images' run with the re-run; it is the check.
+  // "images": no command can check it; the agent compares the screenshots itself.
+  baselineDrift?: "compare" | "images";
 }
 
 // Checks the user's picks against the steps that were offered. Server-side guard, so a
@@ -68,6 +75,10 @@ export function validatePicks(
 }
 
 const ASK_ME = "Re-create the after run the way it was made; if you don't know how, ask me before guessing.";
+const DRIFT_COMPARE =
+  "The re-run's own stepDiffs are not the check here: it diffs against a different baseline version than these before images. Read the stepDiffs from the compare line instead.";
+const DRIFT_IMAGES =
+  "Warning: the re-run would compare against a different baseline version than these before images, so its stepDiffs are not the check.";
 const DO_NOT_APPROVE =
   "Do not run `vigress approve`, `--update-baseline` or `vigress before`. Stop and tell me what you changed; I will approve it myself.";
 
@@ -121,16 +132,22 @@ export function buildStepPrompt(p: StepPromptInput): string {
     for (const s of keep) out.push(...stepBlock(++n, s, p.mode));
   }
 
+  // A "compare" drift without a compare command falls back to comparing by eye.
+  const drift = p.mode !== "baseline" ? undefined : p.baselineDrift === "compare" && !p.compareCheck ? "images" : p.baselineDrift;
   out.push("", "How to check your work:", p.rerun ? `  ${p.rerun}` : `  ${ASK_ME}`);
-  if (p.mode === "compare" && p.compareCheck) out.push(`  ${p.compareCheck}`);
+  if ((p.mode === "compare" || drift === "compare") && p.compareCheck) out.push(`  ${p.compareCheck}`);
+  if (drift === "compare") out.push(DRIFT_COMPARE);
+  if (drift === "images") out.push(DRIFT_IMAGES);
 
   const done: string[] = [];
   if (fix.length > 0) {
-    const missing = fix.some((s) => s.verdict === "missing");
-    done.push(
-      `every FIX step's mismatchPercent is at or below ${p.hideBelow}%` +
-        (missing ? " (a FIX step that was missing is present again)" : ""),
-    );
+    const back = fix.some((s) => s.verdict === "missing") ? " (a FIX step that was missing is present again)" : "";
+    if (drift === "images") {
+      done.push(`compare your new after screenshots with the before images listed above: every FIX step matches its before image again${back}`);
+    } else {
+      const where = drift === "compare" ? " in the compare output" : "";
+      done.push(`every FIX step's mismatchPercent${where} is at or below ${p.hideBelow}%${back}`);
+    }
   }
   if (keep.length > 0) done.push("every KEEP step still looks like its after screenshot");
   out.push(`Done means: ${done.join(", and ")}.`);

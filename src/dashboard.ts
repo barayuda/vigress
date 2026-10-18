@@ -77,11 +77,18 @@ export function fileUrl(dirName: string, relPath: string): string {
 // /files/ URL for it. null when the path is not inside a run dir under the out dir (a
 // hand-edited manifest), so the page never gets a URL the server would refuse anyway.
 export function repoPathUrl(repoRel: string, outDirRel: string): string | null {
+  const segments = outSegments(repoRel, outDirRel);
+  if (!segments || segments.length < 2) return null;
+  return fileUrl(segments[0], segments.slice(1).join("/"));
+}
+
+// The segments of a repo-relative path below the out dir, or null when it is not plainly
+// inside it (another prefix, or an empty, "." or ".." segment).
+function outSegments(repoRel: string, outDirRel: string): string[] | null {
   const prefix = outDirRel.replace(/\/+$/, "") + "/";
   if (!repoRel.startsWith(prefix)) return null;
   const segments = repoRel.slice(prefix.length).split("/");
-  if (segments.length < 2 || segments.some((s) => s === "" || s === "." || s === "..")) return null;
-  return fileUrl(segments[0], segments.slice(1).join("/"));
+  return segments.some((s) => s === "" || s === "." || s === "..") ? null : segments;
 }
 
 // Prompts and absolute paths go only to requests that did not come through
@@ -284,6 +291,40 @@ export interface PromptPaths {
   outDirRel: string;
 }
 
+// How the agent can check its work in baseline mode. The plain re-run (`after <name>` /
+// `--against baseline:<name>`) always diffs against the manifest's current entry, so it is a
+// valid check only when that entry is the version the before images come from.
+// "rerun": it is. "compare": diff the before version's run dir with the re-run instead.
+// "images": no command can check it; the agent compares the screenshots itself.
+export type BaselineCheck = { kind: "rerun" } | { kind: "compare"; beforeDirAbs: string } | { kind: "images" };
+
+// `version` is the resolved before version (resolveRunBaseline). The re-run is not a valid
+// check when that version is not the current entry (re-approved or rolled back since the run,
+// or blessed by `--update-baseline` / `before` / Approve, which moved it into history), or when
+// the current entry was approved from this run itself (the re-run would diff against itself).
+export function baselineCheck(
+  run: RunResult,
+  runDirAbs: string,
+  manifest: Manifest | null,
+  version: BaselineVersion | null,
+  paths: PromptPaths,
+  exists: (abs: string) => boolean,
+): BaselineCheck {
+  const name = run.baselineRef?.name ?? run.name;
+  const current = manifest && Object.hasOwn(manifest.baselines, name) ? manifest.baselines[name] : undefined;
+  if (!version || !current) return { kind: "rerun" }; // nothing approved: there are no before images to check against
+  const sameDir = (repoRel: string): boolean => normalize(join(paths.rootDir, repoRel)) === normalize(runDirAbs);
+  const isCurrent = version.approvedAt === current.approvedAt && version.approvedFrom === current.approvedFrom;
+  if (isCurrent && !sameDir(current.approvedFrom)) return { kind: "rerun" };
+  // `vigress compare` matches the two runs by comparison name, and the before version's run dir
+  // (history artifacts stay in place) must be a run dir under out/ that is still there.
+  const beforeDirAbs = outSegments(version.approvedFrom, paths.outDirRel)?.length === 1 ? join(paths.rootDir, version.approvedFrom) : null;
+  if (run.name === name && beforeDirAbs && !sameDir(version.approvedFrom) && exists(join(beforeDirAbs, "summary.json"))) {
+    return { kind: "compare", beforeDirAbs };
+  }
+  return { kind: "images" };
+}
+
 // Baseline mode: before = the approved version's step image, after/diff = this run's files.
 export function baselineCandidates(
   run: RunResult,
@@ -291,7 +332,7 @@ export function baselineCandidates(
   manifest: Manifest | null,
   paths: PromptPaths,
   exists: (abs: string) => boolean,
-): { candidates: PromptCandidate[]; beforeLabel: string; warning?: string } {
+): { candidates: PromptCandidate[]; beforeLabel: string; warning?: string; check: BaselineCheck } {
   const resolved = resolveRunBaseline(manifest, run.baselineRef, run.name);
   const version = resolved.version;
   const shotPaths = new Map(run.shots.map((sh) => [sh.name, sh.path]));
@@ -319,7 +360,12 @@ export function baselineCandidates(
   const label = version
     ? `approved baseline ${run.baselineRef?.name ?? run.name} (approved ${version.approvedAt})`
     : `approved baseline ${run.baselineRef?.name ?? run.name} (no longer approved)`;
-  return { candidates, beforeLabel: label, ...(resolved.warning ? { warning: resolved.warning } : {}) };
+  return {
+    candidates,
+    beforeLabel: label,
+    ...(resolved.warning ? { warning: resolved.warning } : {}),
+    check: baselineCheck(run, runDirAbs, manifest, version, paths, exists),
+  };
 }
 
 // Compare mode: compareRuns reads both shots only for steps present on both sides, so a new
@@ -363,6 +409,7 @@ export interface PlanPromptInput {
   rootDir: string;
   cliPath: string;
   compareBeforeDirAbs?: string; // compare mode only
+  check?: BaselineCheck; // baseline mode only, from baselineCandidates; absent = the plain re-run is the check
 }
 
 // Turns the user's picks into the prompt input, or the reason they can't be used (a 400).
@@ -386,6 +433,10 @@ export function planStepPrompt(i: PlanPromptInput): { ok: true; input: StepPromp
       ...(i.mode === "baseline" && c.diff ? { diff: c.diff } : {}),
     });
   }
+  const cwd = i.afterSummary.invocation?.cwd ?? i.rootDir;
+  // The before run dir the compare line diffs with the re-run, and whether the baseline moved.
+  const drift = i.mode === "baseline" && i.check && i.check.kind !== "rerun" ? i.check : undefined;
+  const compareDir = i.mode === "compare" ? i.compareBeforeDirAbs : drift?.kind === "compare" ? drift.beforeDirAbs : undefined;
   return {
     ok: true,
     input: {
@@ -398,9 +449,8 @@ export function planStepPrompt(i: PlanPromptInput): { ok: true; input: StepPromp
       steps,
       hideBelow: i.hideBelow,
       rerun: buildRerunCommand(i.afterSummary.invocation, i.cliPath),
-      ...(i.mode === "compare" && i.compareBeforeDirAbs
-        ? { compareCheck: buildCompareCheckCommand(i.afterSummary.invocation?.cwd ?? i.rootDir, i.cliPath, i.compareBeforeDirAbs, i.name) }
-        : {}),
+      ...(compareDir ? { compareCheck: buildCompareCheckCommand(cwd, i.cliPath, compareDir, i.name) } : {}),
+      ...(drift ? { baselineDrift: drift.kind } : {}),
     },
   };
 }

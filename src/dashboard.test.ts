@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { dirSegment, compareStepDiffsPayload, parseStepPromptBody, baselineCandidates, compareCandidates, planStepPrompt, referencedRunDirs, buildRunIndex, buildRunDetail, resolveRunBaseline, repoPathUrl, isPromptAllowed, buildTrends, TREND_MAX_POINTS, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { baselineCheck, dirSegment, compareStepDiffsPayload, parseStepPromptBody, baselineCandidates, compareCandidates, planStepPrompt, referencedRunDirs, buildRunIndex, buildRunDetail, resolveRunBaseline, repoPathUrl, isPromptAllowed, buildTrends, TREND_MAX_POINTS, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry, type Manifest, type ManifestEntry, type BaselineVersion } from "./baselines";
 import type { RunResult, Summary } from "./types";
+import { buildStepPrompt } from "./stepPrompt";
 
 const run = (over: Partial<RunResult> = {}): RunResult => ({
   name: "page", baselineType: "url", viewport: { width: 1440, height: 900 },
@@ -711,5 +712,85 @@ describe("step prompt planning", () => {
     expect(b.candidates[0].after).toBeUndefined();
     expect(b.candidates[0].diff).toBeUndefined();
     expect(b.candidates[0].before).toBe("/repo/out/2026-a/page.s1.png");
+  });
+});
+
+describe("step prompt when the re-run would diff against a different baseline version", () => {
+  const paths = { rootDir: "/repo", outDirAbs: "/repo/out", outDirRel: "out" };
+  const all = (): boolean => true;
+  const r = run({
+    name: "page",
+    baselineRef: { name: "page", approvedAt: "2026-10-03T00:00:00Z" },
+    shots: [{ name: "s1", path: "page.s1.png" }],
+    stepDiffs: [{ name: "s1", mismatchPercent: 2, verdict: "ok", diff: "page.s1.diff.png" }],
+  });
+  const sum: Summary = { ...summary([r]), invocation: { cwd: "/app", argv: ["after", "page"] } };
+  const used = version("2026-10-03T00:00:00Z", { approvedFrom: "out/2026-a", artifacts: { main: "out/2026-a/page.target.png", steps: { s1: "out/2026-a/page.s1.png" } } });
+  const later = (from: string) =>
+    version("2026-10-05T00:00:00Z", { approvedFrom: from, artifacts: { main: `${from}/page.target.png`, steps: { s1: `${from}/page.s1.png` } } });
+  const prompt = (m: Manifest | null, rr: RunResult = r, exists: (a: string) => boolean = all) => {
+    const b = baselineCandidates(rr, "/repo/out/run-x", m, paths, exists);
+    const p = planStepPrompt({
+      mode: "baseline", name: rr.name, picks: { s1: "before" }, hideBelow: 0.1, candidates: b.candidates, afterRun: rr, afterSummary: { ...sum, runs: [rr] },
+      afterDirAbs: "/repo/out/run-x", beforeLabel: b.beforeLabel, warning: b.warning, check: b.check, rootDir: "/repo", cliPath: "/cli/cli.ts",
+    });
+    if (!p.ok) throw new Error(p.message);
+    return { b, input: p.input, text: buildStepPrompt(p.input) };
+  };
+  const COMPARE = "cd /app && bun run /cli/cli.ts compare /repo/out/2026-a <outDir from the re-run JSON> --name page --json";
+  const PLAIN_DONE = "every FIX step's mismatchPercent is at or below";
+
+  it("history hit: before comes from the history version, and the compare line is the check", () => {
+    const { b, input, text } = prompt(manifestOf("page", { ...later("out/2026-b"), history: [used] }));
+    expect(b.candidates[0].before).toBe("/repo/out/2026-a/page.s1.png");
+    expect(b.check).toEqual({ kind: "compare", beforeDirAbs: "/repo/out/2026-a" });
+    expect(input.baselineDrift).toBe("compare");
+    expect(input.compareCheck).toBe(COMPARE);
+    expect(text).toContain(`  ${COMPARE}`);
+    expect(text).toContain("stepDiffs are not the check here");
+    expect(text).not.toContain(PLAIN_DONE);
+  });
+  it("self-blessed run (the current entry was approved from this run): compare line, never the plain Done rule", () => {
+    const { input, text } = prompt(manifestOf("page", { ...later("out/run-x"), history: [used] }));
+    expect(input.compareCheck).toBe(COMPARE);
+    expect(text).toContain(`  ${COMPARE}`);
+    expect(text).not.toContain(PLAIN_DONE);
+  });
+  it("self-blessed run whose own version is the resolved one: the images warning, no compare line", () => {
+    // The run's ref was pruned, so the before images fall back to the current entry: this run itself.
+    const { b, text } = prompt(manifestOf("page", later("out/run-x")));
+    expect(b.check).toEqual({ kind: "images" });
+    expect(text).toContain("the re-run would compare against a different baseline version than these before images");
+    expect(text).not.toContain("vigress compare");
+    expect(text).not.toContain(" compare /repo");
+    expect(text).not.toContain(PLAIN_DONE);
+  });
+  it("uses the images warning when the before run dir is gone", () => {
+    const { b, text } = prompt(manifestOf("page", { ...later("out/2026-b"), history: [used] }), r, (a) => !a.startsWith("/repo/out/2026-a/summary.json"));
+    expect(b.check).toEqual({ kind: "images" });
+    expect(text).not.toContain(PLAIN_DONE);
+  });
+  it("uses the images warning when the run's name differs from the baseline name", () => {
+    const named = { ...r, name: "page-check" };
+    const { b, text } = prompt(manifestOf("page", { ...later("out/2026-b"), history: [used] }), named);
+    expect(b.check).toEqual({ kind: "images" });
+    expect(text).not.toContain(PLAIN_DONE);
+  });
+  it("resolved version is current and not self-blessed: unchanged (plain re-run is the check)", () => {
+    const { b, input, text } = prompt(manifestOf("page", used));
+    expect(b.check).toEqual({ kind: "rerun" });
+    expect(input.baselineDrift).toBeUndefined();
+    expect(input.compareCheck).toBeUndefined();
+    expect(text).toContain(PLAIN_DONE);
+    expect(text).not.toContain("compare");
+  });
+  it("baselineCheck refuses a before run dir outside the out dir", () => {
+    const odd = { ...used, approvedFrom: "../elsewhere" };
+    expect(baselineCheck(r, "/repo/out/run-x", manifestOf("page", { ...later("out/2026-b"), history: [odd] }), odd, paths, all)).toEqual({ kind: "images" });
+  });
+  it("buildRunDetail shows the history version's before image", () => {
+    const [d] = buildRunDetail(summary([r]), "run-x", { manifest: manifestOf("page", { ...later("out/2026-b"), history: [used] }), outDirRel: "out", promptAllowed: true });
+    expect(d.stepDiffs[0].images.before).toBe("/files/2026-a/page.s1.png");
+    expect(d.baselineWarning).toBeUndefined();
   });
 });
