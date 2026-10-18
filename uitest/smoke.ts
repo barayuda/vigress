@@ -291,17 +291,24 @@ async function main(): Promise<void> {
     !(await pressed("s1", "before")) && (await copyText()) === "Copy prompt (0 steps) · 0 fix · 0 keep" && (await copyBtn.isDisabled().catch(() => false)), (await copyText()) ?? "");
   await soft(pick("s1", "before").click({ timeout: 3000 }));
 
-  // A new run forces a real re-render of the list (and so of the open Details panel).
+  // A new run forces a real re-render of the list (and so of the open Details panel). The
+  // hide-below value is set to a non-default first, so the re-render must keep it as well.
+  const hideBelow = rev.locator("input.hidebelow");
+  check("hide-below starts at 0.1", (await hideBelow.inputValue({ timeout: 2000 }).catch(() => "")) === "0.1");
+  await soft(hideBelow.fill("0.5", { timeout: 2000 }));
+  // Focus in the input holds the auto-refresh back (checked further down), so leave it first.
+  await soft(hideBelow.evaluate((e) => (e as HTMLElement).blur(), null, { timeout: 2000 }));
   await page.check("#auto");
   const rowCount = await page.locator("#runs .row").count();
   seedRun("2026-10-09_g", "late2", 1);
   await soft(page.waitForFunction((n) => document.querySelectorAll("#runs .row").length === n + 1, rowCount, { timeout: 12000 }));
   await soft(page.waitForSelector('#runs .detail:not([hidden]) .stepcard[data-step="s1"] button.pick[data-side="before"][aria-pressed="true"]', { timeout: 5000 }));
   check("picks survive an auto-refresh", (await page.locator("#runs .row").count()) === rowCount + 1 && (await pressed("s1", "before")));
+  check("hide-below survives an auto-refresh",
+    (await hideBelow.inputValue({ timeout: 2000 }).catch(() => "")) === "0.5" && JSON.stringify(await cardNames()) === '["s1","s3"]',
+    (await hideBelow.inputValue({ timeout: 2000 }).catch(() => "")) + " / " + JSON.stringify(await cardNames()));
   await page.uncheck("#auto");
 
-  const hideBelow = rev.locator("input.hidebelow");
-  check("hide-below starts at 0.1", (await hideBelow.inputValue({ timeout: 2000 }).catch(() => "")) === "0.1");
   await soft(hideBelow.fill("5", { timeout: 2000 }));
   check("raising hide-below drops picks on hidden cards",
     JSON.stringify(await cardNames()) === '["s3"]' && (await copyText()) === "Copy prompt (0 steps) · 0 fix · 0 keep", JSON.stringify(await cardNames()) + " / " + (await copyText()));
@@ -346,6 +353,29 @@ async function main(): Promise<void> {
   check("changing a pick rebuilds the text and discards edits",
     !rebuilt.includes("EDITED") && rebuilt.includes("s3 (missing from the after run)") && (await copyText()) === "Copy prompt (2 steps) · 2 fix · 0 keep", (await copyText()) ?? "");
 
+  // Typing in the prompt box holds the auto-refresh back, so focus and text are not lost; the
+  // list catches up once focus leaves.
+  await page.check("#auto");
+  const rowsBefore = await page.locator("#runs .row").count();
+  await soft(box.focus({ timeout: 2000 }));
+  await soft(box.evaluate((e) => { const t = e as HTMLTextAreaElement; t.setSelectionRange(t.value.length, t.value.length); }, null, { timeout: 2000 }));
+  await soft(box.pressSequentially(" TYPED", { timeout: 3000 }));
+  seedRun("2026-10-09_h", "late3", 1);
+  await page.waitForTimeout(6500); // more than one 5 s auto-refresh tick
+  const focusKept = await page.evaluate(() => {
+    const a = document.activeElement as HTMLTextAreaElement | null;
+    return !!a && a.matches("#runs .detail:not([hidden]) .steprev textarea.prompt") && a.value.endsWith(" TYPED");
+  });
+  check("typing in the prompt box keeps focus and text through an auto-refresh tick",
+    focusKept && (await page.locator("#runs .row").count()) === rowsBefore, `focus kept: ${focusKept}, rows ${rowsBefore} -> ${await page.locator("#runs .row").count()}`);
+  await soft(box.evaluate((e) => (e as HTMLElement).blur(), null, { timeout: 2000 }));
+  await soft(page.waitForFunction((n) => document.querySelectorAll("#runs .row").length === n + 1, rowsBefore, { timeout: 12000 }));
+  const caughtUp = await page.locator("#runs .row").count();
+  const kept = await box.inputValue({ timeout: 2000 }).catch(() => "");
+  check("the list catches up once focus leaves, and keeps the edited text",
+    caughtUp === rowsBefore + 1 && kept.endsWith(" TYPED"), `rows ${rowsBefore} -> ${caughtUp}, text ends ${JSON.stringify(kept.slice(-20))}`);
+  await page.uncheck("#auto");
+
   // The Compare panel gets the same cards: before / after / diff from the two runs.
   await page.selectOption("#cmp-a", FLOW_BASE);
   await page.selectOption("#cmp-b", FLOW_AFTER);
@@ -376,7 +406,13 @@ async function main(): Promise<void> {
     return { status: r.status, body: await r.text() };
   }, { login, dir: FLOW_AFTER });
   const ts = await viaTailscale(WRITER);
-  check("tailscale viewers get the note, not the button", ts.status === 403 && ts.body.includes(LOCAL_ONLY), `${ts.status} ${ts.body}`);
+  check("step-prompt endpoint refuses tailscale viewers with the note", ts.status === 403 && ts.body.includes(LOCAL_ONLY), `${ts.status} ${ts.body}`);
+  // A run's summary.json holds the invocation (cwd, argv, env): local only too.
+  expected.add(`403 /files/${FLOW_AFTER}/summary.json`);
+  const summaryStatus = (headers: Record<string, string>) => page.evaluate(async ({ dir, headers }) => (await fetch(`/files/${dir}/summary.json`, { headers })).status, { dir: FLOW_AFTER, headers });
+  const tsSummary = await summaryStatus({ "tailscale-user-login": WRITER });
+  const localSummary = await summaryStatus({});
+  check("summary.json is refused to tailscale viewers and served locally", tsSummary === 403 && localSummary === 200, `${tsSummary} / ${localSummary}`);
   check("a tailscale viewer who may not write is refused too", (await viaTailscale("reader@example.com")).status === 403);
   const tsCtx = await browser.newContext({ viewport: { width: 1300, height: 900 }, extraHTTPHeaders: { "tailscale-user-login": WRITER } });
   const tsPage = await tsCtx.newPage();

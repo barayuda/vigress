@@ -22,10 +22,18 @@ function filterQuery() {
   return p.toString();
 }
 
-// force=false (auto-refresh) skips the re-render when nothing changed.
+// True while the user is typing in a run's step review (the prompt box or the hide-below
+// input): re-rendering the run list then would take their focus and selection away.
+function typingInStepReview() {
+  const a = document.activeElement;
+  return !!a && (a.tagName === "TEXTAREA" || a.tagName === "INPUT") && !!a.closest("#runs .steprev");
+}
+
+// force=false (auto-refresh) skips the re-render when nothing changed, and while the user is
+// typing in a step review (lastJson is left alone, so a later tick catches up).
 async function load(force = true) {
   const text = await (await fetch("/api/runs?" + filterQuery())).text();
-  if (force || text !== lastJson) {
+  if (force || (text !== lastJson && !typingInStepReview())) {
     lastJson = text;
     index = JSON.parse(text);
     render();
