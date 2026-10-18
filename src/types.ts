@@ -70,6 +70,10 @@ export interface StepDiff {
 export interface Invocation {
   cwd: string; // absolute
   argv: string[];
+  // The run settings that came from the environment (only those that were set): VIGRESS_STATE,
+  // VIGRESS_VIEWPORT, VIGRESS_SETTLE, VIGRESS_DWELL, VIGRESS_BROWSER, VIGRESS_OUT. Never
+  // FIGMA_TOKEN or any other variable. See pickInvocationEnv in rerun.ts.
+  env?: Record<string, string>;
 }
 
 // The approved baseline version a run diffed against.

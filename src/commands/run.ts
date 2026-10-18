@@ -17,6 +17,7 @@ import { buildGitInfo } from "../gitinfo";
 import { SCHEMA_VERSION, type GitInfo, type RunResult, type RegionScore, type RunMode, type Shot, type StepResult, type StepDiff, type Summary } from "../types";
 import { prepareBeforeAfter } from "../beforeAfter";
 import { withManifestLock } from "../manifestLock";
+import { pickInvocationEnv } from "../rerun";
 import type { Ctx } from "./context";
 
 function log(quiet: boolean, msg: string): void {
@@ -311,13 +312,14 @@ export async function runCommand({ values, positionals, argv }: Ctx): Promise<nu
   }
 
   const gitInfo = collectGitInfo();
+  const invocationEnv = pickInvocationEnv(process.env);
   const summary: Summary = {
     schemaVersion: SCHEMA_VERSION,
     outDir,
     reportHtml: "report.html",
     summaryJson: "summary.json",
     ...(gitInfo ? { git: gitInfo } : {}),
-    invocation: { cwd: process.cwd(), argv },
+    invocation: { cwd: process.cwd(), argv, ...(invocationEnv ? { env: invocationEnv } : {}) },
     runs: results,
   };
   writeReport(summary);

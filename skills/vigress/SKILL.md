@@ -121,7 +121,7 @@ sections that leave the viewport). Other scroll-reveal libraries are not handled
 ## For AI agents
 
 `--json` prints one object `{ schemaVersion: 11, outDir, reportHtml, git?:{commit,branch?,dirty,url?},
-invocation?:{cwd,argv:[]},
+invocation?:{cwd,argv:[],env?:{VIGRESS_*:…}},
 runs:[{ name, baselineType, viewport, mismatchPixels?, mismatchPercent?, heightDelta?,
 target, targetUrl, fullPage?, baseline?, diff?, video?, bootstrap?, baselineRef?:{name,approvedAt},
 mode, shots:[], steps:[{index,action,selector?,check,status,error?}],
@@ -133,7 +133,7 @@ checklist:[{aspect,region,verdict,workaround}] }] }` with absolute paths.
   and `mismatchPercent` are absent — the run captured and approved but had
   nothing to diff against.
 - `stepDiffs[]` is populated only for `baseline:` runs with approved step shots.
-- `invocation` is how the run was made (absolute `cwd` plus the raw `argv`); `baselineRef` names the approved baseline version a `baseline:` run diffed against (absent on bootstrap runs).
+- `invocation` is how the run was made (absolute `cwd`, the raw `argv`, and `env`: only the `VIGRESS_STATE`/`VIEWPORT`/`SETTLE`/`DWELL`/`BROWSER`/`OUT` variables that were set, never `FIGMA_TOKEN`); `baselineRef` names the approved baseline version a `baseline:` run diffed against (absent on bootstrap runs).
 - `--quiet` suppresses the log lines.
 - A pasted "vigress before/after review" prompt (built by the dashboard) lists FIX steps
   (make them match before again) and KEEP steps (do not undo). Re-run with its exact

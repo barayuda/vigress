@@ -781,7 +781,7 @@ video. It references the artifacts by relative path, so open it directly
   "outDir": "/abs/path/out",
   "reportHtml": "report.html",
   "summaryJson": "summary.json",
-  "invocation": { "cwd": "/abs/path/project", "argv": ["after", "contact", "--state", "auth.state.json"] },
+  "invocation": { "cwd": "/abs/path/project", "argv": ["after", "contact", "--state", "auth.state.json"], "env": { "VIGRESS_VIEWPORT": "1280x800" } },
   "runs": [
     {
       "name": "contact",
@@ -809,7 +809,7 @@ video. It references the artifacts by relative path, so open it directly
 }
 ```
 
-**v11 schema changes** (from v10): `summary.json` and the `--json` payload gain a top-level `invocation` object — `{ cwd, argv }` — recording how the run was made: the absolute working directory and the raw command-line arguments after the script path, unchanged (`vigress after home` records `["after", "home", …]`). The state file appears only as the path given to `--state`; its contents are never read into the summary. It is absent only on pre-v11 summaries. Each `RunResult` may also carry `baselineRef` — `{ name, approvedAt }` — the approved baseline version a `baseline:` run diffed against; it is absent on bootstrap runs and on runs that do not use a `baseline:` reference.
+**v11 schema changes** (from v10): `summary.json` and the `--json` payload gain a top-level `invocation` object — `{ cwd, argv }` — recording how the run was made: the absolute working directory and the raw command-line arguments after the script path, unchanged (`vigress after home` records `["after", "home", …]`). The state file appears only as the path given to `--state`; its contents are never read into the summary. `invocation.argv` records URLs as given, so a token in a `--target` / `--against` URL (for example `?token=…`) is stored in `summary.json` too. An optional `invocation.env` records the run settings that came from the environment, only those that were set: `VIGRESS_STATE`, `VIGRESS_VIEWPORT`, `VIGRESS_SETTLE`, `VIGRESS_DWELL`, `VIGRESS_BROWSER`, `VIGRESS_OUT` (never `FIGMA_TOKEN` or any other variable); the dashboard's re-run command puts them in front of `bun run`. `invocation` is absent only on pre-v11 summaries. Each `RunResult` may also carry `baselineRef` — `{ name, approvedAt }` — the approved baseline version a `baseline:` run diffed against; it is absent on bootstrap runs and on runs that do not use a `baseline:` reference.
 
 **v10 schema changes** (from v9): `summary.json` and the `--json` payload gain a top-level `git` object — `{ commit, branch?, dirty, url? }` — describing the git repo in the working directory the run was started from: the full commit sha, the branch (absent on a detached HEAD), whether there were uncommitted changes, and, when `origin` is a GitHub remote, the GitHub commit page (which also lists the pull requests that commit belongs to). It is absent outside a git repo. Nothing is sent anywhere: it is read from local `git`. The dashboard shows it on each run as `branch@abc1234`, linked to the commit, and only ever links an exact `https://github.com/<owner>/<repo>/commit/<sha>` URL.
 

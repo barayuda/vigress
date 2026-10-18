@@ -38,6 +38,11 @@ describe("buildJsonPayload invocation + baselineRef", () => {
     expect(p.runs[0].baselineRef).toEqual(baselineRef);
   });
 
+  it("carries the recorded env through as-is", () => {
+    const invocation = { cwd: "/repo", argv: ["after", "home"], env: { VIGRESS_VIEWPORT: "1280x800" } };
+    const p = buildJsonPayload({ ...summary, invocation }) as { invocation?: unknown };
+    expect(p.invocation).toEqual(invocation);
+  });
   it("leaves invocation undefined for pre-v11 summaries", () => {
     const p = buildJsonPayload(summary) as any;
     expect(p.invocation).toBeUndefined();
