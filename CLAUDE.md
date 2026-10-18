@@ -70,6 +70,10 @@ Everything except `browser.ts`, `capture.ts`, `steps.ts`'s Playwright calls, `au
 
 The dashboard follows the same split: `server.ts` is a thin I/O shell (scans `out/`, serves artifacts, executes deletes); every decision (manifest locking, cleanup selection, path safety via `safeChildPath`) lives in `dashboard.ts`, and the page is `dashboardHtml.ts` (markup + CSS) plus `dashboardClient.js` (behaviour). Put new delete/keep rules in `dashboard.ts`, not `server.ts`. File-system checks are injected into the pure functions (e.g. `buildBaselineIndex(manifest, exists)`) so they test without a disk. Direction and security model for further dashboard work: `docs/dashboard-roadmap.md`. The page re-renders on filter changes and auto-refresh, so UI state that must survive (open Details panels) lives in a set outside the DOM and is marked *before* any fetch; and `Cleanup` must list the **unfiltered** run set, since the server deletes everything neither kept nor locked.
 
+### Code style
+
+Doc comments on top-level declarations (functions, types, interfaces, module constants) use block form: `/** One line. */`, or `/**` … ` * ` … ` */` for several lines, in `.ts` and `dashboardClient.js` alike. Comments inside a function body stay `//`. Older code still has `//` doc comments; convert them only when you are already changing that code, not in an unrelated diff.
+
 ### The JSON contract (three places to keep in sync)
 
 `SCHEMA_VERSION` lives in `src/types.ts` (currently **11**). `summary.json` uses paths relative to `outDir`; the `--json` stdout payload is the same shape with **absolute** paths (built in `json.ts`). When you change the output shape (including adding a step-action enum value):
