@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative, basename } from "node:path";
-import { fileUrl, dirSegment, compareStepDiffsPayload, parseStepPromptBody, baselineCandidates, compareCandidates, planStepPrompt, buildRunIndex, buildRunDetail, isPromptAllowed, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { fileUrl, dirSegment, compareStepDiffsPayload, parseStepPromptBody, baselineCandidates, compareCandidates, planStepPrompt, buildRunIndex, buildRunDetail, isPromptAllowed, isFileAllowed, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
 import { buildStepPrompt } from "./stepPrompt";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, rollbackBaseline, type Manifest } from "./baselines";
@@ -349,6 +349,7 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         }
         const abs = safeChildPath(join(o.outDirAbs, dir), rest);
         if (!abs) return new Response("forbidden", { status: 403 });
+        if (!isFileAllowed(rest, req.headers.get("tailscale-user-login"))) return new Response("forbidden", { status: 403 });
         if (!existsSync(abs)) return new Response("not found", { status: 404 });
         // Lexical check passed; also refuse symlinks that escape out/.
         let realAbs: string;

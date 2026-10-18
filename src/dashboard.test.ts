@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { baselineCheck, dirSegment, compareStepDiffsPayload, parseStepPromptBody, baselineCandidates, compareCandidates, planStepPrompt, referencedRunDirs, buildRunIndex, buildRunDetail, resolveRunBaseline, repoPathUrl, isPromptAllowed, buildTrends, TREND_MAX_POINTS, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { baselineCheck, isFileAllowed, dirSegment, compareStepDiffsPayload, parseStepPromptBody, baselineCandidates, compareCandidates, planStepPrompt, referencedRunDirs, buildRunIndex, buildRunDetail, resolveRunBaseline, repoPathUrl, isPromptAllowed, buildTrends, TREND_MAX_POINTS, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
 import { emptyManifest, upsertBaseline, buildManifestEntry, type Manifest, type ManifestEntry, type BaselineVersion } from "./baselines";
 import type { RunResult, Summary } from "./types";
 import { buildStepPrompt } from "./stepPrompt";
@@ -450,12 +450,43 @@ describe("repoPathUrl", () => {
     expect(repoPathUrl("outside/2026-a/x.png", "out")).toBeNull();
     expect(repoPathUrl("out/../secret/x.png", "out")).toBeNull();
   });
+  it("uses no prefix when the out dir is the repo root (dashboard --out .)", () => {
+    expect(repoPathUrl("2026-a/home.step.png", "")).toBe("/files/2026-a/home.step.png");
+    expect(repoPathUrl("2026-a/sub/x.png", ".")).toBe("/files/2026-a/sub/x.png");
+    expect(repoPathUrl("x.png", "")).toBeNull(); // no run dir segment
+  });
+  it("refuses absolute paths and . or .. segments in every case", () => {
+    for (const out of ["", ".", "out"]) {
+      const pre = out === "out" ? "out/" : "";
+      expect(repoPathUrl("/etc/passwd", out)).toBeNull();
+      expect(repoPathUrl(`/${pre}2026-a/x.png`, out)).toBeNull();
+      expect(repoPathUrl(`${pre}../x/y.png`, out)).toBeNull();
+      expect(repoPathUrl(`${pre}./2026-a/x.png`, out)).toBeNull();
+      expect(repoPathUrl(`${pre}2026-a/../x.png`, out)).toBeNull();
+      expect(repoPathUrl(`${pre}2026-a/./x.png`, out)).toBeNull();
+      expect(repoPathUrl(`${pre}2026-a//x.png`, out)).toBeNull();
+    }
+  });
 });
 
 describe("isPromptAllowed", () => {
   it("allows only requests without a Tailscale login header", () => {
     expect(isPromptAllowed(null)).toBe(true);
     expect(isPromptAllowed("me@x")).toBe(false);
+  });
+});
+
+describe("isFileAllowed", () => {
+  it("refuses a run's summary.json to Tailscale viewers (it holds the invocation: cwd, argv, env)", () => {
+    expect(isFileAllowed("summary.json", "me@x")).toBe(false);
+    expect(isFileAllowed("sub/summary.json", "me@x")).toBe(false);
+    expect(isFileAllowed("SUMMARY.JSON", "me@x")).toBe(false);
+  });
+  it("serves summary.json locally, and every other file to everyone", () => {
+    expect(isFileAllowed("summary.json", null)).toBe(true);
+    expect(isFileAllowed("report.html", "me@x")).toBe(true);
+    expect(isFileAllowed("page.target.png", "me@x")).toBe(true);
+    expect(isFileAllowed("summary.json.png", "me@x")).toBe(true);
   });
 });
 

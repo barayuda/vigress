@@ -83,9 +83,12 @@ export function repoPathUrl(repoRel: string, outDirRel: string): string | null {
 }
 
 // The segments of a repo-relative path below the out dir, or null when it is not plainly
-// inside it (another prefix, or an empty, "." or ".." segment).
+// inside it (absolute, another prefix, or an empty, "." or ".." segment). An out dir that is
+// the repo root itself ("" or ".", from `dashboard --out .`) has no prefix.
 function outSegments(repoRel: string, outDirRel: string): string[] | null {
-  const prefix = outDirRel.replace(/\/+$/, "") + "/";
+  if (isAbsolute(repoRel)) return null;
+  const out = outDirRel.replace(/\/+$/, "");
+  const prefix = out === "" || out === "." ? "" : out + "/";
   if (!repoRel.startsWith(prefix)) return null;
   const segments = repoRel.slice(prefix.length).split("/");
   return segments.some((s) => s === "" || s === "." || s === "..") ? null : segments;
@@ -95,6 +98,13 @@ function outSegments(repoRel: string, outDirRel: string): string[] | null {
 // `tailscale serve` (which adds the caller's login header).
 export function isPromptAllowed(tailscaleLogin: string | null): boolean {
   return tailscaleLogin === null;
+}
+
+// What /files/ may serve. A run's summary.json holds the invocation (absolute cwd, argv with
+// URLs as given, env), so it goes only to local requests; the page never fetches it.
+export function isFileAllowed(relPath: string, tailscaleLogin: string | null): boolean {
+  if (tailscaleLogin === null) return true;
+  return relPath.split("/").pop()?.toLowerCase() !== "summary.json";
 }
 
 export const BASELINE_CHANGED_WARNING = "the baseline changed after this run; before images may not be what this run was compared against";
