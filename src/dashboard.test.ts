@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { referencedRunDirs, buildRunIndex, buildRunDetail, buildTrends, TREND_MAX_POINTS, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
-import { emptyManifest, upsertBaseline, buildManifestEntry } from "./baselines";
+import { referencedRunDirs, buildRunIndex, buildRunDetail, resolveRunBaseline, repoPathUrl, isPromptAllowed, buildTrends, TREND_MAX_POINTS, fileUrl, parseRunFilter, filterRuns, buildBaselineIndex, isWriteAllowed, cleanupSelection, safeChildPath, safeDecode, type RunDirInfo } from "./dashboard";
+import { emptyManifest, upsertBaseline, buildManifestEntry, type Manifest, type ManifestEntry, type BaselineVersion } from "./baselines";
 import type { RunResult, Summary } from "./types";
 
 const run = (over: Partial<RunResult> = {}): RunResult => ({
@@ -236,6 +236,8 @@ describe("buildBaselineIndex", () => {
   });
 });
 
+const ctx = { manifest: null, outDirRel: "out", promptAllowed: true };
+
 describe("buildRunDetail", () => {
   const noisy = run({
     name: "page", mismatchPercent: 3.2, heightDelta: -40,
@@ -259,7 +261,7 @@ describe("buildRunDetail", () => {
   });
 
   it("keeps only what needs attention: failed check steps, style mismatches, step diffs with their verdict", () => {
-    const [d] = buildRunDetail(summary([noisy]), "run-x");
+    const [d] = buildRunDetail(summary([noisy]), "run-x", ctx);
     expect(d.name).toBe("page");
     expect(d.mismatchPercent).toBe(3.2);
     expect(d.heightDelta).toBe(-40);
@@ -270,13 +272,13 @@ describe("buildRunDetail", () => {
   });
   it("counts issues the same way the run list does", () => {
     const sum = summary([noisy]);
-    const [d] = buildRunDetail(sum, "run-x");
+    const [d] = buildRunDetail(sum, "run-x", ctx);
     const [row] = buildRunIndex([dir({ summary: sum })], new Map());
     expect(d.issues).toBe(row.issues);
     expect(d.issues).toBe(3); // 1 failed check + 1 missing step diff + 1 style mismatch
   });
   it("marks a bootstrap entry and tolerates absent mismatch fields", () => {
-    const [d] = buildRunDetail(summary([run({ bootstrap: true, mismatchPercent: undefined, heightDelta: undefined, baseline: undefined, diff: undefined })]), "run-x");
+    const [d] = buildRunDetail(summary([run({ bootstrap: true, mismatchPercent: undefined, heightDelta: undefined, baseline: undefined, diff: undefined })]), "run-x", ctx);
     expect(d.bootstrap).toBe(true);
     expect(d.mismatchPercent).toBeUndefined();
     expect(d.heightDelta).toBeUndefined();
@@ -293,7 +295,7 @@ describe("fileUrl", () => {
 
 describe("buildRunDetail images", () => {
   it("gives ready /files/ URLs for target, baseline, diff and video", () => {
-    const [d] = buildRunDetail(summary([run({ video: "video/page.webm" })]), "run-x");
+    const [d] = buildRunDetail(summary([run({ video: "video/page.webm" })]), "run-x", ctx);
     expect(d.images).toEqual({
       target: "/files/run-x/page.target.png",
       baseline: "/files/run-x/page.baseline.png",
@@ -302,7 +304,7 @@ describe("buildRunDetail images", () => {
     });
   });
   it("omits baseline, diff and video when the run has none (bootstrap)", () => {
-    const [d] = buildRunDetail(summary([run({ bootstrap: true, baseline: undefined, diff: undefined })]), "run-x");
+    const [d] = buildRunDetail(summary([run({ bootstrap: true, baseline: undefined, diff: undefined })]), "run-x", ctx);
     expect(d.images).toEqual({ target: "/files/run-x/page.target.png" });
   });
 });
@@ -389,5 +391,131 @@ describe("buildTrends", () => {
   it("records the baseline type so a parity run and a regression run can be told apart", () => {
     const t = buildTrends([d("a", 1, [run({ name: "n", baselineType: "baseline" })])]);
     expect(t.n[0].baselineType).toBe("baseline");
+  });
+});
+
+const version = (approvedAt: string, over: Partial<BaselineVersion> = {}): BaselineVersion => ({
+  storage: "local", approvedAt, approvedFrom: "out/2026-a", viewport: { width: 1440, height: 900 }, sourceUrl: "https://app.test/page",
+  artifacts: { main: "out/2026-a/page.target.png", steps: {} }, ...over,
+});
+const manifestOf = (name: string, entry: ManifestEntry): Manifest => ({ schemaVersion: 1, baselines: { [name]: entry } });
+
+describe("resolveRunBaseline", () => {
+  const cur = version("2026-10-03T00:00:00Z", { artifacts: { main: "out/c/m.png", steps: { s1: "out/c/s1.png" } } });
+  const old = version("2026-10-01T00:00:00Z", { artifacts: { main: "out/o/m.png", steps: { s1: "out/o/s1.png" } } });
+  const m = manifestOf("page", { ...cur, history: [old] });
+
+  it("returns the current entry, no warning, when the ref matches it", () => {
+    const r = resolveRunBaseline(m, { name: "page", approvedAt: cur.approvedAt }, "page");
+    expect(r.version?.approvedAt).toBe(cur.approvedAt);
+    expect(r.warning).toBeUndefined();
+  });
+  it("finds an older approvedAt in history", () => {
+    const r = resolveRunBaseline(m, { name: "page", approvedAt: old.approvedAt }, "page");
+    expect(r.version).toBe(m.baselines.page.history![0]);
+    expect(r.warning).toBeUndefined();
+  });
+  it("falls back to the current entry with a warning when the version was pruned", () => {
+    const r = resolveRunBaseline(m, { name: "page", approvedAt: "2020-01-01T00:00:00Z" }, "page");
+    expect(r.version?.approvedAt).toBe(cur.approvedAt);
+    expect(r.warning).toBe("the baseline changed after this run; before images may not be what this run was compared against");
+  });
+  it("falls back to the current entry with a warning when the run has no ref", () => {
+    const r = resolveRunBaseline(m, undefined, "page");
+    expect(r.version?.approvedAt).toBe(cur.approvedAt);
+    expect(r.warning).toMatch(/baseline changed after this run/);
+  });
+  it("looks up ref.name over the run name", () => {
+    const r = resolveRunBaseline(m, { name: "page", approvedAt: cur.approvedAt }, "other");
+    expect(r.version?.approvedAt).toBe(cur.approvedAt);
+  });
+  it("returns no version when the baseline is gone (or there is no manifest)", () => {
+    expect(resolveRunBaseline(m, undefined, "nope")).toEqual({ version: null, warning: "baseline 'nope' is no longer approved" });
+    expect(resolveRunBaseline(null, { name: "page", approvedAt: cur.approvedAt }, "page")).toEqual({ version: null, warning: "baseline 'page' is no longer approved" });
+  });
+  it("does not resolve inherited object keys as baseline names", () => {
+    expect(resolveRunBaseline(m, undefined, "constructor").version).toBeNull();
+  });
+});
+
+describe("repoPathUrl", () => {
+  it("maps a repo-relative artifact path under out/ to a /files/ URL", () => {
+    expect(repoPathUrl("out/2026-a/home.step.png", "out")).toBe("/files/2026-a/home.step.png");
+    expect(repoPathUrl("out/2026-a/sub dir/x.png", "out")).toBe("/files/2026-a/sub%20dir/x.png");
+  });
+  it("returns null for a path outside out/", () => {
+    expect(repoPathUrl("elsewhere/x.png", "out")).toBeNull();
+    expect(repoPathUrl("out/x.png", "out")).toBeNull(); // no run dir segment
+    expect(repoPathUrl("outside/2026-a/x.png", "out")).toBeNull();
+    expect(repoPathUrl("out/../secret/x.png", "out")).toBeNull();
+  });
+});
+
+describe("isPromptAllowed", () => {
+  it("allows only requests without a Tailscale login header", () => {
+    expect(isPromptAllowed(null)).toBe(true);
+    expect(isPromptAllowed("me@x")).toBe(false);
+  });
+});
+
+describe("buildRunDetail step images and sides", () => {
+  const r = run({
+    name: "page",
+    baselineRef: { name: "page", approvedAt: "2026-10-03T00:00:00Z" },
+    shots: [{ name: "s1", path: "page.s1.png" }],
+    stepDiffs: [
+      { name: "s1", mismatchPercent: 2, verdict: "mismatch", diff: "page.s1.diff.png" },
+      { name: "s2", mismatchPercent: 0, verdict: "missing" },
+    ],
+  });
+  const m = manifestOf("page", version("2026-10-03T00:00:00Z", { artifacts: { main: "out/2026-a/page.target.png", steps: { s1: "out/2026-a/page.s1.png", s2: "out/2026-a/page.s2.png" } } }));
+
+  it("gives before/after/diff URLs and both sides for a changed step", () => {
+    const [d] = buildRunDetail(summary([r]), "run-x", { manifest: m, outDirRel: "out", promptAllowed: true });
+    const s1 = d.stepDiffs[0];
+    expect(s1.images).toEqual({ before: "/files/2026-a/page.s1.png", after: "/files/run-x/page.s1.png", diff: "/files/run-x/page.s1.diff.png" });
+    expect(s1.sides).toEqual(["before", "after"]);
+    expect(d.baselineWarning).toBeUndefined();
+  });
+  it("has no after image for a missing step, and offers only the before side", () => {
+    const [d] = buildRunDetail(summary([r]), "run-x", { manifest: m, outDirRel: "out", promptAllowed: true });
+    const s2 = d.stepDiffs[1];
+    expect(s2.images.after).toBeUndefined();
+    expect(s2.images.before).toBe("/files/2026-a/page.s2.png");
+    expect(s2.sides).toEqual(["before"]);
+  });
+  it("has no before image for a new step", () => {
+    const rn = run({ shots: [{ name: "s3", path: "page.s3.png" }], stepDiffs: [{ name: "s3", mismatchPercent: 0, verdict: "new" }] });
+    const [d] = buildRunDetail(summary([rn]), "run-x", { manifest: m, outDirRel: "out", promptAllowed: true });
+    expect(d.stepDiffs[0].images).toEqual({ after: "/files/run-x/page.s3.png" });
+    expect(d.stepDiffs[0].sides).toEqual(["after"]);
+  });
+  it("passes promptAllowed through and never exposes absolute paths", () => {
+    const [d] = buildRunDetail(summary([r]), "run-x", { manifest: m, outDirRel: "out", promptAllowed: false });
+    expect(d.promptAllowed).toBe(false);
+    const slashed = JSON.stringify(d).match(/"\/[^"]*"/g) ?? [];
+    expect(slashed.length).toBeGreaterThan(0);
+    expect(slashed.every((v) => v.startsWith('"/files/'))).toBe(true);
+  });
+  it("warns, and uses the current entry, when the ref was pruned or absent", () => {
+    const rp = { ...r, baselineRef: undefined };
+    const [d] = buildRunDetail(summary([rp]), "run-x", { manifest: m, outDirRel: "out", promptAllowed: true });
+    expect(d.baselineWarning).toMatch(/baseline changed after this run/);
+    expect(d.stepDiffs[0].images.before).toBe("/files/2026-a/page.s1.png");
+  });
+  it("warns that the baseline is gone and shows no before images when there is no manifest entry", () => {
+    const [d] = buildRunDetail(summary([r]), "run-x", { manifest: null, outDirRel: "out", promptAllowed: true });
+    expect(d.baselineWarning).toBe("baseline 'page' is no longer approved");
+    expect(d.stepDiffs[0].images.before).toBeUndefined();
+  });
+  it("omits a before image whose manifest path is outside out/", () => {
+    const bad = manifestOf("page", version("2026-10-03T00:00:00Z", { artifacts: { main: "x.png", steps: { s1: "elsewhere/s1.png" } } }));
+    const [d] = buildRunDetail(summary([r]), "run-x", { manifest: bad, outDirRel: "out", promptAllowed: true });
+    expect(d.stepDiffs[0].images.before).toBeUndefined();
+  });
+  it("sets no baselineWarning for a run without step diffs", () => {
+    const [d] = buildRunDetail(summary([run()]), "run-x", ctx);
+    expect(d.baselineWarning).toBeUndefined();
+    expect(d.stepDiffs).toEqual([]);
   });
 });

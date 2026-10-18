@@ -75,6 +75,36 @@ describe("compareRuns", () => {
     expect(byName.get("gone")!.verdict).toBe("missing");
     expect(r.result.diffPng.subarray(1, 4).toString()).toBe("PNG");
   });
+  it("returns per-step diff PNGs and both relative paths", () => {
+    const aDir = mkdir("ps-a1", { "page.target.png": solid(4, 4, [255, 255, 255]), "page.s1.png": solid(4, 4, [0, 0, 0]) });
+    const bDir = mkdir("ps-b1", { "page.target.png": solid(4, 4, [255, 255, 255]), "b/page.s1.png": solid(4, 4, [255, 255, 255]) });
+    const r = compareRuns({
+      a: { dir: aDir, summary: sum([run({ shots: [{ name: "s1", path: "page.s1.png" }] })]) },
+      b: { dir: bDir, summary: sum([run({ shots: [{ name: "s1", path: "b/page.s1.png" }] })]) },
+      name: "page",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const s1 = r.result.stepDiffs[0];
+    expect(Buffer.isBuffer(s1.diffPng)).toBe(true);
+    expect(s1.diffPng!.subarray(1, 4).toString()).toBe("PNG");
+    expect(s1.aRel).toBe("page.s1.png");
+    expect(s1.bRel).toBe("b/page.s1.png");
+  });
+  it("leaves diffPng and the missing side's path off new/missing steps", () => {
+    const aDir = mkdir("ps-a2", { "page.target.png": solid(4, 4, [255, 255, 255]), "page.gone.png": solid(4, 4, [0, 0, 0]) });
+    const bDir = mkdir("ps-b2", { "page.target.png": solid(4, 4, [255, 255, 255]), "page.new.png": solid(4, 4, [0, 0, 0]) });
+    const r = compareRuns({
+      a: { dir: aDir, summary: sum([run({ shots: [{ name: "gone", path: "page.gone.png" }] })]) },
+      b: { dir: bDir, summary: sum([run({ shots: [{ name: "new", path: "page.new.png" }] })]) },
+      name: "page",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const byName = new Map(r.result.stepDiffs.map((s) => [s.name, s]));
+    expect(byName.get("new")).toEqual({ name: "new", mismatchPercent: 0, verdict: "new", bRel: "page.new.png" });
+    expect(byName.get("gone")).toEqual({ name: "gone", mismatchPercent: 0, verdict: "missing", aRel: "page.gone.png" });
+  });
   it("reports a changed target", () => {
     const aDir = mkdir("a2", { "page.target.png": solid(10, 10, [255, 255, 255]) });
     const bDir = mkdir("b2", { "page.target.png": solid(10, 10, [0, 0, 0]) });

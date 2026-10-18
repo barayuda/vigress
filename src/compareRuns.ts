@@ -24,7 +24,9 @@ export interface CompareResult {
   height: number;
   widthDelta: number; // after minus before
   heightDelta: number;
-  stepDiffs: { name: string; mismatchPercent: number; verdict: StepDiffVerdict }[];
+  // aRel/bRel: shot paths relative to each run dir (absent on the side that lacks the step).
+  // diffPng stays in memory (compare writes no files); only steps present on both sides have one.
+  stepDiffs: { name: string; mismatchPercent: number; verdict: StepDiffVerdict; aRel?: string; bRel?: string; diffPng?: Buffer }[];
   diffPng: Buffer;
   aTarget: string; // paths relative to each run dir, for building file URLs
   bTarget: string;
@@ -51,16 +53,16 @@ export function compareRuns(i: CompareInput): { ok: true; result: CompareResult 
   const stepDiffs: CompareResult["stepDiffs"] = [];
   for (const [shot, bRel] of Object.entries(plan.b.shots)) {
     const aRel = plan.a.shots[shot];
-    if (aRel === undefined) { stepDiffs.push({ name: shot, mismatchPercent: 0, verdict: "new" }); continue; }
+    if (aRel === undefined) { stepDiffs.push({ name: shot, mismatchPercent: 0, verdict: "new", bRel }); continue; }
     const sa = read(i.a.dir, aRel, `before step '${shot}'`);
     if (!sa.ok) return sa;
     const sb = read(i.b.dir, bRel, `after step '${shot}'`);
     if (!sb.ok) return sb;
     const d = diffPngData(sa.data, sb.data, i.threshold);
-    stepDiffs.push({ name: shot, mismatchPercent: d.mismatchPercent, verdict: stepDiffVerdict(true, true, d.mismatchPercent, i.maxMismatch) });
+    stepDiffs.push({ name: shot, mismatchPercent: d.mismatchPercent, verdict: stepDiffVerdict(true, true, d.mismatchPercent, i.maxMismatch), aRel, bRel, diffPng: d.diffPng });
   }
   for (const shot of Object.keys(plan.a.shots)) {
-    if (!(shot in plan.b.shots)) stepDiffs.push({ name: shot, mismatchPercent: 0, verdict: "missing" });
+    if (!(shot in plan.b.shots)) stepDiffs.push({ name: shot, mismatchPercent: 0, verdict: "missing", aRel: plan.a.shots[shot] });
   }
 
   return {

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, rmSync, unlinkSync, writeFileSync, realpathSync } from "node:fs";
 import { join, relative, basename } from "node:path";
-import { fileUrl, buildRunIndex, buildRunDetail, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
+import { fileUrl, buildRunIndex, buildRunDetail, isPromptAllowed, buildTrends, parseRunFilter, filterRuns, buildBaselineIndex, referencedRunDirs, cleanupSelection, isWriteAllowed, safeChildPath, safeDecode, type RunDirInfo, type RunIndexEntry } from "./dashboard";
 import { buildDashboardHtml } from "./dashboardHtml";
 import { parseManifest, emptyManifest, writeManifest, approveRuns, rollbackBaseline, type Manifest } from "./baselines";
 import type { Summary } from "./types";
@@ -203,9 +203,11 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         if (!name) return json({ error: common.length ? `pick a comparison: ${common.join(", ")}` : "the two runs have no comparison name in common" }, 400);
         const res = compareRuns({ a: { dir: aAbs, summary: aSum }, b: { dir: bAbs, summary: bSum }, name });
         if (!res.ok) return json({ error: res.message }, 400);
-        const { diffPng, aTarget, bTarget, ...rest } = res.result;
+        const { diffPng, aTarget, bTarget, stepDiffs, ...rest } = res.result;
         return json({
           ...rest,
+          // Same shape as before: the per-step PNG buffers and run-relative paths stay server-side.
+          stepDiffs: stepDiffs.map((s) => ({ name: s.name, mismatchPercent: s.mismatchPercent, verdict: s.verdict })),
           before: aDir,
           after: bDir,
           images: {
@@ -277,7 +279,7 @@ export function startDashboard(o: DashboardOpts): ReturnType<typeof Bun.serve> {
         if (!existsSync(abs)) return json({ error: "run dir not found" }, 404);
         const summary = readSummary(abs);
         if (!summary) return json({ error: "run has no readable summary.json" }, 404);
-        return json(buildRunDetail(summary, dir));
+        return json(buildRunDetail(summary, dir, { manifest: loadManifest(o), outDirRel: relative(o.rootDir, o.outDirAbs), promptAllowed: isPromptAllowed(req.headers.get("tailscale-user-login")) }));
       }
 
       // Approved baselines from the manifest (re-read per request), flagging missing artifacts.

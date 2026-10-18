@@ -1,7 +1,8 @@
 import { dirname, normalize, join, isAbsolute } from "node:path";
-import { versionArtifacts, type Manifest } from "./baselines";
-import type { RunResult, Summary, StepDiffVerdict, RegionVerdict, GitInfo } from "./types";
+import { versionArtifacts, type Manifest, type BaselineVersion } from "./baselines";
+import type { RunResult, Summary, StepDiffVerdict, RegionVerdict, GitInfo, BaselineRef } from "./types";
 import { sanitizeGitInfo } from "./gitinfo";
+import { sidesFor, type KeepSide } from "./stepPrompt";
 
 // Pure view-model + guard logic for the dashboard. The server (server.ts)
 // does the I/O (scanning out/, markers, deletes) and feeds plain data in;
@@ -71,6 +72,52 @@ export function fileUrl(dirName: string, relPath: string): string {
   return "/files/" + [dirName, ...relPath.split("/")].map(encodeURIComponent).join("/");
 }
 
+// Maps a repo-root-relative artifact path from the manifest ("out/<dir>/<rest>") to the
+// /files/ URL for it. null when the path is not inside a run dir under the out dir (a
+// hand-edited manifest), so the page never gets a URL the server would refuse anyway.
+export function repoPathUrl(repoRel: string, outDirRel: string): string | null {
+  const prefix = outDirRel.replace(/\/+$/, "") + "/";
+  if (!repoRel.startsWith(prefix)) return null;
+  const segments = repoRel.slice(prefix.length).split("/");
+  if (segments.length < 2 || segments.some((s) => s === "" || s === "." || s === "..")) return null;
+  return fileUrl(segments[0], segments.slice(1).join("/"));
+}
+
+// Prompts and absolute paths go only to requests that did not come through
+// `tailscale serve` (which adds the caller's login header).
+export function isPromptAllowed(tailscaleLogin: string | null): boolean {
+  return tailscaleLogin === null;
+}
+
+export const BASELINE_CHANGED_WARNING = "the baseline changed after this run; before images may not be what this run was compared against";
+
+// Which approved version a run was compared against. A baseline can be re-approved after the
+// run, so look the run's recorded approvedAt up in the current entry, then in its history.
+// A pruned version (or a run that recorded none) falls back to the current entry, with a warning.
+export function resolveRunBaseline(
+  manifest: Manifest | null,
+  ref: BaselineRef | undefined,
+  runName: string,
+): { version: BaselineVersion | null; warning?: string } {
+  const name = ref?.name ?? runName;
+  const entry = manifest && Object.hasOwn(manifest.baselines, name) ? manifest.baselines[name] : undefined;
+  if (!entry) return { version: null, warning: `baseline '${name}' is no longer approved` };
+  if (ref) {
+    if (entry.approvedAt === ref.approvedAt) return { version: entry };
+    const past = (entry.history ?? []).find((v) => v.approvedAt === ref.approvedAt);
+    if (past) return { version: past };
+  }
+  return { version: entry, warning: BASELINE_CHANGED_WARNING };
+}
+
+export interface RunDetailStepDiff {
+  name: string;
+  verdict: StepDiffVerdict;
+  mismatchPercent: number;
+  images: { before?: string; after?: string; diff?: string }; // /files/ URLs
+  sides: KeepSide[]; // which images can be marked "keep"
+}
+
 export interface RunDetailEntry {
   name: string;
   images: { target: string; baseline?: string; diff?: string; video?: string };
@@ -86,38 +133,68 @@ export interface RunDetailEntry {
     mismatchPercent: number;
     styleMismatches: { property: string; target: string | null; baseline: string | null }[];
   }[];
-  stepDiffs: { name: string; verdict: StepDiffVerdict; mismatchPercent: number }[];
+  stepDiffs: RunDetailStepDiff[];
+  baselineWarning?: string; // set when the "before" images may not be what the run was compared against
+  promptAllowed: boolean; // false for requests that came through `tailscale serve`
+}
+
+export interface RunDetailContext {
+  manifest: Manifest | null;
+  outDirRel: string; // out dir relative to the repo root, e.g. "out"
+  promptAllowed: boolean;
 }
 
 // What the dashboard shows when a run is expanded: the parts of summary.json a
 // reviewer acts on, without the artifact paths (those are served via /files/).
-export function buildRunDetail(summary: Summary, dirName: string): RunDetailEntry[] {
-  return summary.runs.map((r) => ({
-    name: r.name,
-    images: {
-      target: fileUrl(dirName, r.target),
-      ...(r.baseline ? { baseline: fileUrl(dirName, r.baseline) } : {}),
-      ...(r.diff ? { diff: fileUrl(dirName, r.diff) } : {}),
-      ...(r.video ? { video: fileUrl(dirName, r.video) } : {}),
-    },
-    mismatchPercent: r.mismatchPercent,
-    heightDelta: r.heightDelta,
-    bootstrap: r.bootstrap,
-    issues: countIssues(r),
-    failedSteps: r.steps
-      .filter((s) => s.check && s.status === "failed")
-      .map((s) => ({ index: s.index, action: s.action, selector: s.selector, error: s.error })),
-    regions: r.regions.map((rg) => ({
-      name: rg.name,
-      verdict: rg.verdict,
-      reason: rg.reason,
-      mismatchPercent: rg.mismatchPercent,
-      styleMismatches: (rg.styleDiff ?? [])
-        .filter((s) => !s.match)
-        .map((s) => ({ property: s.property, target: s.target, baseline: s.baseline })),
-    })),
-    stepDiffs: r.stepDiffs.map((d) => ({ name: d.name, verdict: d.verdict, mismatchPercent: d.mismatchPercent })),
-  }));
+export function buildRunDetail(summary: Summary, dirName: string, ctx: RunDetailContext): RunDetailEntry[] {
+  return summary.runs.map((r) => {
+    // Step diffs need the approved version's step images; other runs have nothing to resolve.
+    const resolved = r.stepDiffs.length > 0 ? resolveRunBaseline(ctx.manifest, r.baselineRef, r.name) : null;
+    const shotPaths = new Map(r.shots.map((sh) => [sh.name, sh.path])); // duplicate names: last one wins
+    return {
+      name: r.name,
+      images: {
+        target: fileUrl(dirName, r.target),
+        ...(r.baseline ? { baseline: fileUrl(dirName, r.baseline) } : {}),
+        ...(r.diff ? { diff: fileUrl(dirName, r.diff) } : {}),
+        ...(r.video ? { video: fileUrl(dirName, r.video) } : {}),
+      },
+      mismatchPercent: r.mismatchPercent,
+      heightDelta: r.heightDelta,
+      bootstrap: r.bootstrap,
+      issues: countIssues(r),
+      failedSteps: r.steps
+        .filter((s) => s.check && s.status === "failed")
+        .map((s) => ({ index: s.index, action: s.action, selector: s.selector, error: s.error })),
+      regions: r.regions.map((rg) => ({
+        name: rg.name,
+        verdict: rg.verdict,
+        reason: rg.reason,
+        mismatchPercent: rg.mismatchPercent,
+        styleMismatches: (rg.styleDiff ?? [])
+          .filter((s) => !s.match)
+          .map((s) => ({ property: s.property, target: s.target, baseline: s.baseline })),
+      })),
+      stepDiffs: r.stepDiffs.map((d) => {
+        const beforeRel = resolved?.version && Object.hasOwn(resolved.version.artifacts.steps, d.name) ? resolved.version.artifacts.steps[d.name] : undefined;
+        const before = beforeRel === undefined ? null : repoPathUrl(beforeRel, ctx.outDirRel);
+        const afterRel = shotPaths.get(d.name);
+        return {
+          name: d.name,
+          verdict: d.verdict,
+          mismatchPercent: d.mismatchPercent,
+          images: {
+            ...(before ? { before } : {}),
+            ...(afterRel !== undefined ? { after: fileUrl(dirName, afterRel) } : {}),
+            ...(d.diff ? { diff: fileUrl(dirName, d.diff) } : {}),
+          },
+          sides: sidesFor(d),
+        };
+      }),
+      ...(resolved?.warning ? { baselineWarning: resolved.warning } : {}),
+      promptAllowed: ctx.promptAllowed,
+    };
+  });
 }
 
 export function buildRunIndex(dirs: RunDirInfo[], refs: Map<string, string[]>): RunIndexEntry[] {
