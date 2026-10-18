@@ -28,8 +28,9 @@ After a before/after check the human may review the changed step screenshots in 
 
 - **FIX** steps (kept as before): the after screenshot is a regression. Change the app code so the step looks like its `before` image again (a step "missing from the after run" must be captured again). Read the `before`, `after` and (when given) `diff` PNGs first.
 - **KEEP** steps (kept as after): the change is intended. Do not undo it while fixing the others.
-- Re-run with the exact command under "How to check your work" (it already has `--json`); in compare mode, then run the `compare` line with the new run's `outDir` from that JSON. Read `stepDiffs[]` for the steps named in the prompt.
-- Done means what the prompt says: every FIX step's `mismatchPercent` at or below the given value, every KEEP step still like its after screenshot.
+- Re-run with the exact command under "How to check your work" (it already has `--json` and any `VIGRESS_*` settings the run used); when the prompt has a `compare` line, then run it with the new run's `outDir` from that JSON. Read `stepDiffs[]` for the steps named in the prompt, from the output the prompt names as the check (the `compare` line's when it says the re-run's own `stepDiffs` are not the check).
+- If the prompt warns that the re-run would compare against a different baseline version than the before images, its `stepDiffs` prove nothing: open the new after screenshots and compare them with the listed before images yourself.
+- Done means what the prompt says: every FIX step's `mismatchPercent` at or below the given value (or matching its before image, when the prompt asks you to compare them), every KEEP step still like its after screenshot.
 - **Never** run `approve`, `--update-baseline` or `before` to make the check pass. Stop and report what you changed; the human approves.
 - If the prompt has no re-run command, re-create the after run the way it was made, or ask.
 

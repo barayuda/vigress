@@ -34,6 +34,12 @@ proxying to it, tailnet only (never `funnel`).
   make the host browse arbitrary addresses.
 - **Jobs** run one at a time, as a child process of the existing CLI, with a
   timeout.
+- **Local only:** `POST /api/step-prompt` (the agent prompt, with absolute
+  paths and the re-run command) answers only requests without a
+  `Tailscale-User-Login` header; tailnet viewers get a 403 and a note. A run's
+  `summary.json` is refused (403) to them as well under `/files/`, because its
+  `invocation` holds the absolute cwd, the argv (URLs as given) and the
+  recorded `VIGRESS_*` settings. The page never fetches `summary.json`.
 
 The `CLAUDE.md` rule "binds 127.0.0.1 only — never expose it" stays true: the
 proxy is the only path in. Update that bullet when Stage 3 ships.
