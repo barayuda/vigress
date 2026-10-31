@@ -1,7 +1,7 @@
 import { mkdirSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
 import { MANIFEST_PATH, parseManifest, emptyManifest, writeManifest, buildManifestEntry, upsertBaseline, parseBaselineRef, resolveBaselineArtifacts, type ManifestEntry } from "../baselines";
-import type { BrowserContext } from "playwright";
+import type { Browser, BrowserContext } from "playwright";
 import { buildRunConfig, selectorForSide, parseRegionFlag, parseMaskFlag, parseStepFlag, validateStep, runStamp, type ChecklistItem, type Box } from "../config";
 import { runSteps, autoExplore, stepSummary } from "../steps";
 import { captureRect, resolveBoxes, type BoxItem } from "../regions";
@@ -128,12 +128,15 @@ export async function runCommand({ values, positionals, argv }: Ctx): Promise<nu
   }
 
   const browser = await launchBrowser();
+  // A recorded run gets its own browser whose window matches its viewport (see launchArgs).
+  let recorder: Browser | undefined;
   const results: RunResult[] = [];
   try {
     for (const spec of runs) {
       const ctxOpts = { viewport: spec.viewport, ...storageStateOption(opts.statePath) };
-      const ctx: BrowserContext = spec.video
-        ? await browser.newContext({ ...ctxOpts, recordVideo: { dir: videoDir, size: spec.viewport } })
+      recorder = spec.video ? await launchBrowser(true, spec.viewport) : undefined;
+      const ctx: BrowserContext = recorder
+        ? await recorder.newContext({ ...ctxOpts, recordVideo: { dir: videoDir, size: spec.viewport } })
         : await browser.newContext(ctxOpts);
 
       const targetRel = `${spec.name}.target.png`;
@@ -197,11 +200,17 @@ export async function runCommand({ values, positionals, argv }: Ctx): Promise<nu
           // Approved image baseline: no DOM to probe, like image/figma.
           await imageSource(approved!.entry.artifacts.main, join(outDir, baselineRel));
         } else {
-          const resolved = await resolveBaseline(
-            spec, ctx, join(outDir, baselineRel), process.env, baselineItems, baselineStyleItems, opts.statePath,
-          );
-          baselineBoxes = resolved.boxes;
-          baselineStyles = resolved.styles;
+          // Off the recorder: a second tab in its window shrinks the walkthrough's frames.
+          const baselineCtx = recorder ? await browser.newContext(ctxOpts) : ctx;
+          try {
+            const resolved = await resolveBaseline(
+              spec, baselineCtx, join(outDir, baselineRel), process.env, baselineItems, baselineStyleItems, opts.statePath,
+            );
+            baselineBoxes = resolved.boxes;
+            baselineStyles = resolved.styles;
+          } finally {
+            if (baselineCtx !== ctx) await baselineCtx.close();
+          }
         }
 
         // image/figma/baseline baselines resolve no DOM boxes → fall back to the region's clip.
@@ -273,6 +282,8 @@ export async function runCommand({ values, positionals, argv }: Ctx): Promise<nu
       await ctx.close();
       const videoPath = videoHandle ? await videoHandle.path() : undefined;
       const videoRel = videoPath ? join("video", videoPath.split("/").pop()!) : undefined;
+      await recorder?.close();
+      recorder = undefined;
 
       const checklist: ChecklistItem[] = mergeChecklist(spec.checklist ?? [], regions);
 
@@ -308,6 +319,7 @@ export async function runCommand({ values, positionals, argv }: Ctx): Promise<nu
       log(opts.quiet || opts.json, `[${spec.name}] ${spec.baselineType} ${pctNote} · ${mode}${stepsNote}${styleNote}${stepDiffNote} · ${regions.length} region(s) -> ${isBootstrap ? targetRel : diffRel}`);
     }
   } finally {
+    await recorder?.close();
     await browser.close();
   }
 

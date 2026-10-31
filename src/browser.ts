@@ -12,7 +12,18 @@ export function browserChannel(env: NodeJS.ProcessEnv = process.env): string {
   return c;
 }
 
-export async function launchBrowser(headless = true): Promise<Browser> {
+export interface WindowSize {
+  width: number;
+  height: number;
+}
+
+// Headless Chrome/Edge records the window, not the emulated viewport: a video is
+// cropped (and padded grey) unless the window has the viewport's exact size.
+export function launchArgs(windowSize?: WindowSize): string[] {
+  return windowSize ? [`--window-size=${windowSize.width},${windowSize.height}`] : [];
+}
+
+export async function launchBrowser(headless = true, windowSize?: WindowSize): Promise<Browser> {
   // channel uses the installed browser — no Chromium download.
-  return chromium.launch({ channel: browserChannel(), headless });
+  return chromium.launch({ channel: browserChannel(), headless, args: launchArgs(windowSize) });
 }
