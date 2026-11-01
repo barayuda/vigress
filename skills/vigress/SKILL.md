@@ -1,7 +1,9 @@
 ---
 name: vigress
 description: Capture a target URL and compare it (pixel diff + video) against a baseline — another URL, a saved image (e.g. a Figma export), a Figma frame via API, or a previously approved capture — using the vigress CLI. Use when verifying a migration or redesign against staging or a design, checking a full page (--full-page), guarding a page against regressions after blessing a baseline (approve), recording a UI walkthrough, or when the user mentions visual regression, pixel diff, screenshot parity, fullcheck, or Figma comparison. Not for unit tests or DOM-only assertions.
-argument-hint: "<action, e.g. 'compare localhost:3000/x to staging' | 'diff against figma:KEY/NODE' | 'login to staging' | 'run config batch.json'>"
+compatibility: Needs Bun and an installed Chrome or Edge. FIGMA_TOKEN only for figma baselines.
+metadata:
+  version: "0.2.1"
 ---
 
 # vigress — visual regression (URL / image / Figma)
